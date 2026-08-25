@@ -91,7 +91,6 @@ function App() {
           scenario={scenario}
           onBack={handleReset}
           onChangeMode={handleBackToModes}
-          onDifferentScenario={handleDifferentScenario}
         />
       )
     }
@@ -113,7 +112,7 @@ function App() {
       <div className="max-w-2xl mx-auto">
         <div className="bg-surface rounded-card shadow-lg p-8">
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-heading-1 text-ink">Spanish Audio Chat</h1>
+            <h1 className="text-heading-1 text-ink">Conversation Amigo</h1>
             <div className="flex items-center gap-3">
               {!showHistory && (
                 <button

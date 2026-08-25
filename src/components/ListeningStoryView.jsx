@@ -7,11 +7,10 @@ import LoadingSpinner from './LoadingSpinner'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
 import { apiFetch } from '../api'
-import { getScenarioVocab } from '../scenarioVocab'
 
 const SENTENCE_GAP_MS = 1300
 
-export default function ListeningStoryView({ scenario, onBack, onChangeMode, onDifferentScenario }) {
+export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [story, setStory] = useState(null)
@@ -20,7 +19,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
   const [matchingWords, setMatchingWords] = useState([])
   const [playStatus, setPlayStatus] = useState('idle') // idle, playing, gap, paused, finished
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [rate, setRate] = useState(0.8)
+  const [rate, setRate] = useState(0.5)
   const [userAnswers, setUserAnswers] = useState({})
   const [showTranscript, setShowTranscript] = useState(false)
   const [showMCQ, setShowMCQ] = useState(false)
@@ -31,7 +30,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
 
   const synthRef = useRef(null)
   const indexRef = useRef(0)
-  const rateRef = useRef(0.8)
+  const rateRef = useRef(0.5)
   const pausedRef = useRef(false)
   const pauseContextRef = useRef(null) // 'mid-sentence' | 'gap'
   const gapTimeoutRef = useRef(null)
@@ -395,8 +394,8 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
   if (loading) {
     return (
       <div>
-        <ListeningHeader onBack={handleBackWithSave} onChangeMode={onChangeMode} onDifferentScenario={onDifferentScenario} />
-        <LoadingSpinner words={getScenarioVocab(scenario)} label="Generating your story..." estimatedMs={13000} />
+        <ListeningHeader onBack={handleBackWithSave} onChangeMode={onChangeMode} />
+        <LoadingSpinner label="Generating your story..." />
       </div>
     )
   }
@@ -406,7 +405,6 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
       <ListeningHeader
         onBack={handleBackWithSave}
         onChangeMode={onChangeMode}
-        onDifferentScenario={onDifferentScenario}
         onRegenerate={story ? handleRegenerateStory : undefined}
       />
 
@@ -470,15 +468,20 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
               </div>
 
               <div className="flex gap-2 justify-center sm:justify-start sm:gap-1">
-                {[1.0, 0.8, 0.6].map((r) => (
+                {[
+                  { r: 0.6, label: 'Slow' },
+                  { r: 0.5, label: 'Normal' },
+                  { r: 0.4, label: 'Fast' },
+                ].map(({ r, label }) => (
                   <button
                     key={r}
                     onClick={() => handleSpeedChange(r)}
+                    title={`${label} (${r}x)`}
                     className={`min-w-[44px] min-h-[44px] px-3 sm:px-2 rounded-control text-small font-semibold transition ${
                       rate === r ? 'bg-primary text-white' : 'bg-primary-light text-primary-text hover:bg-primary/20'
                     }`}
                   >
-                    {r === 1.0 ? '1x' : `${r}x`}
+                    {label}
                   </button>
                 ))}
               </div>

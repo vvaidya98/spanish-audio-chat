@@ -5,7 +5,6 @@ import NavButton from './NavButton'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
 import { apiFetch } from '../api'
-import { getScenarioVocab } from '../scenarioVocab'
 
 const MIN_EXCHANGES_BEFORE_END = 5
 const MAX_EXCHANGES = 8
@@ -241,7 +240,7 @@ export default function ConversationView({ scenario, onReset, onApiError, onChan
       )}
 
       {isInitialLoad ? (
-        <LoadingSpinner words={getScenarioVocab(scenario)} label="Starting your conversation..." estimatedMs={5000} />
+        <LoadingSpinner label="Starting your conversation..." estimateText="This usually takes a few seconds" />
       ) : (
         <>
           <div className="mb-6 bg-surface rounded-card shadow-sm border border-border p-4 min-h-[4.5rem] flex items-center">
