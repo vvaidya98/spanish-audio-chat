@@ -1,5 +1,5 @@
 # PENDING.md — Spanish Audio Chat
-## Last updated: 2026-08-25 (v1.0k ship)
+## Last updated: 2026-08-25 (v1.0l ship)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -286,9 +286,13 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - SAC-003–007: Production deployment (GitHub, Netlify, Railway, prod URL testing, doc review) — see DONE section
 - SAC-016: Basic analytics logging + optional email capture — see DONE section
 
+**Done — v1.0l:**
+- SAC-018–024: Phase 1 UX enhancements (nav buttons, story completion toggles, vocab animations, loading spinner, mobile tap targets, compact mobile header, audio autoplay fallback) — see DONE section
+
 **Next:**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
 2. Set a real `VITE_FORMSPREE_URL` so the email capture form goes live (code is shipped but no-ops without it)
+3. Phase 2 (v1.0m): SAC-025–029
 
 ---
 
@@ -313,14 +317,16 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 | SAC-027 | → | **SAC-029** | Story caching (pre-generate, regenerate button) |
 | SAC-011-A | → | **SAC-030** | Difficulty selector (A1 Beginner / A1.5-A2 Intermediate / B1+ Advanced) |
 
-### Phase 1 (target v1.0l) — Quick Wins + Mobile Polish
-- [ ] SAC-018: Navigation buttons (text links → real buttons)
-- [ ] SAC-019: Story completion flow (toggle MCQ & transcript sections)
-- [ ] SAC-020: Vocabulary animations (checkmark, red X, sound on match/miss)
-- [ ] SAC-021: Loading animation (progress bar + animated words during story/response generation)
-- [ ] SAC-022: Mobile tap targets (44px+, responsive)
-- [ ] SAC-023: Mobile header (combine cards, reduce vertical space)
-- [ ] SAC-024: Audio playback bug — investigate mobile Safari vs. desktop Chrome autoplay behavior
+### Phase 1 — SHIPPED in v1.0l
+- [x] SAC-018: Navigation buttons (text links → real buttons)
+- [x] SAC-019: Story completion flow (toggle MCQ & transcript sections)
+- [x] SAC-020: Vocabulary animations (checkmark, red X, sound on match/miss)
+- [x] SAC-021: Loading animation (progress bar + animated words during story/response generation)
+- [x] SAC-022: Mobile tap targets (44px+, responsive)
+- [x] SAC-023: Mobile header (combine cards, reduce vertical space)
+- [x] SAC-024: Audio playback bug — investigated + fallback shipped
+
+See DONE section for full implementation notes.
 
 ### Phase 2 (target v1.0m) — Major UX Improvements
 - [ ] SAC-025: Reorder main screen (Listening Mode first, not Conversation)
@@ -389,6 +395,17 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - [x] SAC-016: Basic analytics + email capture. New `src/analytics.js` (`logEvent`, console-only for now — no analytics account set up yet, swap-in point documented) logging `page_view`, `session_started`/`session_completed` (both modes, with outcome data), and `history_dashboard_viewed`. New `EmailCapture.jsx` — optional post-session signup form (`SummaryPanel.jsx` for Conversation, end of `ListeningStoryView.jsx` for Listening), posts to a Formspree endpoint read from `VITE_FORMSPREE_URL`; renders nothing if that env var is unset, so it's safe to ship without a real Formspree form yet (Vinay chose to skip creating one this round).
 
 **Decisions made without an explicit spec, v1.0k:** (1) Railway needed a dedicated `railway.json` — Nixpacks' auto-detection otherwise tries to build the frontend too, which fails without `terser`; scoped the fix to a backend-only build/start command rather than making the frontend buildable there, since Railway never needs to serve it. (2) `.env` turned out to have leading whitespace before `ANTHROPIC_API_KEY=`, which silently produced an empty value on the first Railway env var set (anchored `grep '^ANTHROPIC_API_KEY='` matched nothing) — caught via a live `/api/initiate` call returning an auth error, not by an automated check; fixed the extraction and redeployed. (3) GitHub's repo creation defaults added a placeholder README/LICENSE/gitignore despite asking for an empty repo — confirmed the content was trivial (one-line README, template files, no real work) before force-pushing over it. (4) Netlify/Railway are deployed via CLI, not GitHub-connected — auto-deploy-on-push (part of the original acceptance criteria) is not yet wired up; tracked as SAC-017.
+
+### Shipped in v1.0l
+- [x] SAC-018: Navigation buttons — new `NavButton.jsx` (icon + label, solid teal `bg-primary`, 44px+, hover `bg-primary-hover`), replacing every text-link nav instance: `ListeningHeader.jsx` (Back/Change Mode/Diff Scenario), `HistoryDashboard.jsx` (Back), `SessionReview.jsx` (Back to History). `ConversationView.jsx` didn't previously have a header nav row at all (only a bottom "New Topic" button) — built one to match Listening's Back/Change Mode/Diff Scenario pattern for real cross-screen consistency, which required adding `onChangeMode`/`onDifferentScenario` props (wired from `App.jsx`, mirroring the existing Listening wiring) and adding `key={scenario}` to `<ConversationView>` so "Diff Scenario" actually remounts and resets state (same technique Listening already used). The old bottom "New Topic" button was removed as redundant once the header "Back" covered the same action.
+- [x] SAC-019: Story completion flow — `ListeningStoryView.jsx` no longer auto-shows the Comprehension Check on story finish; new `showMCQ` state pairs with the existing `showTranscript` state behind two side-by-side toggle buttons ("📋 Check Comprehension" / "📖 Display Transcript", each independently teal-filled when active), both hidden by default until tapped, both can be open simultaneously. Vocabulary Matching still auto-shows on finish (not gated behind a toggle) since the prompt's spec only covered MCQ + transcript.
+- [x] SAC-020: Vocabulary matching animations — `VocabularyMatching.jsx` rewritten: the old "✓ Correct! / ✗ Try again" banner (which shifted layout every match) is gone entirely; correct matches get a persistent animated green checkmark next to the word (no layout shift), wrong matches get a persistent-for-1.5s red X + red-bordered flash on *both* the attempted word and the attempted option (clearer than flashing just one side) plus an audible beep synthesized via Web Audio API `OscillatorNode` (square wave, 800Hz, 200ms) — no MP3 asset needed. Fixed a real pre-existing bug surfaced by testing this change: the correct-match path called the parent's `onProgressChange` callback from inside `setMatched`'s updater function, which is a React anti-pattern (triggers "Cannot update a component while rendering a different component" warnings) — moved to a `useEffect` keyed on `matched` instead.
+- [x] SAC-021: Loading animation — new `LoadingSpinner.jsx` (SVG circular progress ring that eases toward 95% over an estimated duration so it never looks "done" before the real response arrives, plus a rotating single-word carousel with 4 alternating CSS entrance animations) and new `src/scenarioVocab.js` (a themed 6-word pool per scenario, generic fallback otherwise). Wired into `ListeningStoryView.jsx`'s story-generation wait (replacing the static hourglass) and `ConversationView.jsx`'s *initial* load only — not every mid-conversation "Processing..." turn, which stays the lightweight icon+text treatment it already had, since a full spinner+carousel repeating every turn would be visually excessive for a ~2s wait. Hit a real bug while wiring the Conversation case: `currentState` starts at `'starting'` but flips to `'processing'` synchronously on mount before the first paint (inside `startConversation`'s very first line), so gating the spinner on `currentState === 'starting'` alone meant it never actually rendered — fixed with a derived `isInitialLoad = exchangeCount === 0 && (currentState === 'starting' || currentState === 'processing')`, since "still on the opening API call" can only be inferred from having zero exchanges yet, not from `currentState` alone.
+- [x] SAC-022: Mobile tap targets — playback control icons (⏮/▶‑⏸/⏭) and the row containing them now stack vertically on narrow screens (`flex-col` → `sm:flex-row`) with slightly larger touch targets on mobile (48px vs. 44px desktop, unchanged); speed buttons (1x/0.8x/0.6x) gained `min-w-[44px]` and more horizontal padding on mobile. Found and fixed a real mobile-only layout bug during WebKit-engine screenshot testing at 390px width: `VocabularyMatching.jsx`'s word buttons used `flex items-center justify-between` with no wrapping, so longer Spanish words + their difficulty badge would overflow past the button's edge and visually overlap/clip (confirmed via screenshot, not just a class-name read) — fixed by making both word and option button rows `flex-wrap`, letting the badge drop to its own line when it doesn't fit rather than overflowing.
+- [x] SAC-023: Mobile header — `ListeningStoryView.jsx`'s separate "Topic: {scenario}" card and large centered "Listen carefully" heading (combined ~140px+ of vertical space) replaced with a single compact `border-l-4 border-primary` accent-bordered block (scenario name bold, "Listen carefully" as a small subtitle underneath, ~70px). `ConversationView.jsx` got the equivalent compact header treatment (scenario + exchange count) for consistency, replacing its old plain `bg-primary-light` topic card.
+- [x] SAC-024: Audio playback autoplay bug — investigated and given a fallback rather than "fixed" outright, since the root cause (mobile browser user-activation policies) can't be confirmed from this environment (see the diagnostic round's PENDING.md entry above: Playwright's WebKit test build has no Web Speech API at all, so real mobile Safari/Chrome autoplay behavior remains unverified against a real device). Added detection instead: ~900ms after a story's opening `speak()` call, `ListeningStoryView.jsx` checks whether the engine actually reports `speaking` (and isn't just legitimately resting in the natural inter-sentence gap — checked via `gapTimeoutRef` so a real completed-and-resting utterance isn't misflagged); if speech never started at all, a prominent teal "🔊 Tap to Play" banner appears, calling `speakSentenceAt(0)` from a direct click handler (which should satisfy any user-activation requirement regardless of the exact policy). Verified end-to-end with a synth mock that silently swallows `speak()` (simulating a hard autoplay block): fallback banner appears, is 44px+, and tapping it successfully starts real playback and makes the banner disappear. Also caught and fixed a false-positive during testing: the initial detection logic flagged failure whenever `speaking` was false at the 900ms check, but with short utterances that's also true during the *legitimate* 1.3s gap between sentences — added the `gapTimeoutRef` check specifically to distinguish "genuinely never started" from "already finished sentence 1 and is resting before sentence 2."
+
+**Decisions made without an explicit spec, v1.0l:** (1) This prompt's own SAC numbering (SAC-016 through SAC-022) collided with already-shipped v1.0k work — built against the renumbered SAC-018–024 mapping established in the prior diagnostic round instead of re-litigating it. (2) ConversationView.jsx gained a full header nav row it never had before (Back/Change Mode/Diff Scenario) rather than just restyling what little existed, since the prompt's acceptance criteria explicitly required consistency across all screens including Conversation. (3) Real device testing (actual iPhone Safari / Android Chrome) isn't possible from this environment — all mobile claims are backed by Playwright's Chromium mobile-viewport emulation (Android Chrome proxy) and WebKit engine with iPhone device emulation (Safari proxy), both real rendering/storage/layout engines, not just a resized desktop browser window; disclosed explicitly rather than implied as equivalent to physical-device testing.
 
 ---
 

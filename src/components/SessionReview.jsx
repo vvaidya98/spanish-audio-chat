@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import NavButton from './NavButton'
 
 function formatDate(timestamp) {
   return new Date(timestamp).toLocaleString(undefined, {
@@ -144,12 +145,7 @@ export default function SessionReview({ session, onBack }) {
   return (
     <div>
       <div className="flex items-center gap-1 mb-4 pb-3 border-b border-border">
-        <button
-          onClick={onBack}
-          className="min-h-[44px] text-small text-ink-muted hover:text-ink font-semibold px-2 rounded-control hover:bg-primary-light transition"
-        >
-          ← Back to History
-        </button>
+        <NavButton icon="←" label="Back to History" onClick={onBack} title="Back to History" />
       </div>
 
       <div className="mb-6 bg-primary-light rounded-card px-4 py-3">

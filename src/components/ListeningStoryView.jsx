@@ -3,9 +3,11 @@ import HoverableText from './HoverableText'
 import ListeningHeader from './ListeningHeader'
 import VocabularyMatching from './VocabularyMatching'
 import EmailCapture from './EmailCapture'
+import LoadingSpinner from './LoadingSpinner'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
 import { apiFetch } from '../api'
+import { getScenarioVocab } from '../scenarioVocab'
 
 const SENTENCE_GAP_MS = 1300
 
@@ -21,9 +23,11 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
   const [rate, setRate] = useState(0.8)
   const [userAnswers, setUserAnswers] = useState({})
   const [showTranscript, setShowTranscript] = useState(false)
+  const [showMCQ, setShowMCQ] = useState(false)
   const [transcriptPlayingIdx, setTranscriptPlayingIdx] = useState(null)
   const [openTranslationIdx, setOpenTranslationIdx] = useState(null)
   const [vocabMatchedCount, setVocabMatchedCount] = useState(0)
+  const [autoplayFailed, setAutoplayFailed] = useState(false)
 
   const synthRef = useRef(null)
   const indexRef = useRef(0)
@@ -102,7 +106,25 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
       setLoading(false)
       logEvent('session_started', { mode: 'listening', scenario })
       setTimeout(() => {
-        if (!isStale()) speakSentenceAt(0)
+        if (isStale()) return
+        setAutoplayFailed(false)
+        speakSentenceAt(0)
+        // Autoplay policies (notably mobile Safari) can silently reject a
+        // speak() call that isn't inside a direct user-gesture handler —
+        // no error fires, speech just never starts. Detect that by checking
+        // whether the engine actually reports itself speaking shortly after;
+        // if not, surface a "Tap to Play" fallback the user can trigger
+        // directly instead of leaving playback silently stuck.
+        setTimeout(() => {
+          if (isStale()) return
+          // gapTimeoutRef being set means a real onend already fired and the
+          // engine is legitimately resting between sentences — not a stall.
+          // Only flag failure if speech never started at all.
+          if (synthRef.current && !synthRef.current.speaking && !pausedRef.current && !gapTimeoutRef.current) {
+            setAutoplayFailed(true)
+            setPlayStatus('idle')
+          }
+        }, 900)
       }, 300)
     } catch (err) {
       if (isStale()) return
@@ -197,8 +219,14 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
     synthRef.current.speak(utterance)
   }
 
+  const handleTapToPlay = () => {
+    setAutoplayFailed(false)
+    speakSentenceAt(0)
+  }
+
   const handlePlayPause = () => {
     if (playStatus === 'idle') {
+      setAutoplayFailed(false)
       speakSentenceAt(0)
     } else if (playStatus === 'playing') {
       // cancel() (not the native pause()) so playback stops immediately and
@@ -340,10 +368,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
     return (
       <div>
         <ListeningHeader onBack={handleBackWithSave} onChangeMode={onChangeMode} onDifferentScenario={onDifferentScenario} />
-        <div className="flex flex-col items-center py-12">
-          <div className="text-4xl mb-3">⏳</div>
-          <p className="text-ink-muted">Generating story...</p>
-        </div>
+        <LoadingSpinner words={getScenarioVocab(scenario)} label="Generating your story..." estimatedMs={13000} />
       </div>
     )
   }
@@ -352,8 +377,9 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
     <div>
       <ListeningHeader onBack={handleBackWithSave} onChangeMode={onChangeMode} onDifferentScenario={onDifferentScenario} />
 
-      <div className="mb-6 bg-primary-light rounded-card px-4 py-3">
-        <p className="text-body text-primary-text"><strong>Topic:</strong> {scenario}</p>
+      <div className="mb-6 border-l-4 border-primary bg-primary-light rounded-r-card px-4 py-2.5">
+        <p className="text-ink font-bold text-heading-2 leading-tight">{scenario}</p>
+        <p className="text-primary-text text-small">Listen carefully</p>
       </div>
 
       {error && (
@@ -365,15 +391,22 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
 
       {story && (
         <>
-          <div className="mb-6 bg-surface rounded-card shadow-sm border border-border p-6">
-            <p className="text-heading-1 text-ink text-center mb-4">Listen carefully</p>
+          {autoplayFailed && (
+            <button
+              onClick={handleTapToPlay}
+              className="w-full min-h-[44px] mb-6 px-4 rounded-control text-body font-semibold bg-primary text-white hover:bg-primary-hover transition flex items-center justify-center gap-2"
+            >
+              🔊 Tap to Play
+            </button>
+          )}
 
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-1">
+          <div className="mb-6 bg-surface rounded-card shadow-sm border border-border p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <div className="flex items-center justify-center gap-2 sm:justify-start sm:gap-1">
                 <button
                   onClick={handleRestart}
                   title="Restart"
-                  className="min-w-[44px] min-h-[44px] flex items-center justify-center text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
+                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
                 >
                   ⏮
                 </button>
@@ -381,7 +414,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
                   onClick={handlePlayPause}
                   disabled={playStatus === 'finished'}
                   title={isMainPlaying ? 'Pause' : 'Play'}
-                  className={`min-w-[44px] min-h-[44px] flex items-center justify-center text-2xl leading-none rounded-control transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                  className={`min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control transition disabled:opacity-40 disabled:cursor-not-allowed ${
                     isMainPlaying ? 'text-primary bg-primary-light' : 'text-ink-muted hover:text-ink hover:bg-primary-light'
                   }`}
                 >
@@ -390,7 +423,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
                 <button
                   onClick={handleJumpToEnd}
                   title="Skip to end"
-                  className="min-w-[44px] min-h-[44px] flex items-center justify-center text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
+                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
                 >
                   ⏭
                 </button>
@@ -403,12 +436,12 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
                 <p className="text-small text-ink-muted text-center mt-1">{sentenceLabel}</p>
               </div>
 
-              <div className="flex gap-1">
+              <div className="flex gap-2 justify-center sm:justify-start sm:gap-1">
                 {[1.0, 0.8, 0.6].map((r) => (
                   <button
                     key={r}
                     onClick={() => handleSpeedChange(r)}
-                    className={`min-h-[44px] px-2 rounded-control text-small font-semibold transition ${
+                    className={`min-w-[44px] min-h-[44px] px-3 sm:px-2 rounded-control text-small font-semibold transition ${
                       rate === r ? 'bg-primary text-white' : 'bg-primary-light text-primary-text hover:bg-primary/20'
                     }`}
                   >
@@ -419,7 +452,30 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
             </div>
           </div>
 
-          {playStatus === 'finished' && questions.length > 0 && (
+          {playStatus === 'finished' && (
+            <div className="flex flex-col sm:flex-row gap-2 mb-6">
+              {questions.length > 0 && (
+                <button
+                  onClick={() => setShowMCQ((prev) => !prev)}
+                  className={`flex-1 min-h-[44px] px-4 rounded-control text-body font-semibold transition ${
+                    showMCQ ? 'bg-primary text-white' : 'bg-primary-light text-primary-text hover:bg-primary-light/70'
+                  }`}
+                >
+                  📋 {showMCQ ? 'Hide Comprehension' : 'Check Comprehension'}
+                </button>
+              )}
+              <button
+                onClick={() => setShowTranscript((prev) => !prev)}
+                className={`flex-1 min-h-[44px] px-4 rounded-control text-body font-semibold transition ${
+                  showTranscript ? 'bg-primary text-white' : 'bg-secondary-light text-secondary-text hover:bg-secondary-light/70'
+                }`}
+              >
+                📖 {showTranscript ? 'Hide Transcript' : 'Display Transcript'}
+              </button>
+            </div>
+          )}
+
+          {playStatus === 'finished' && showMCQ && questions.length > 0 && (
             <div className="mb-6">
               <p className="text-heading-2 text-ink mb-3">Comprehension Check</p>
               <div className="space-y-4">
@@ -472,13 +528,6 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
           )}
 
           {playStatus === 'finished' && <EmailCapture />}
-
-          <button
-            onClick={() => setShowTranscript((prev) => !prev)}
-            className="w-full min-h-[44px] py-2 rounded-control text-body font-semibold bg-secondary-light text-secondary-text hover:bg-secondary-light/70 transition mb-6"
-          >
-            👁️ {showTranscript ? 'Hide Transcript' : 'Display Transcript'}
-          </button>
 
           {showTranscript && (
             <div className="mb-6 bg-surface rounded-card shadow-sm border border-border p-6">

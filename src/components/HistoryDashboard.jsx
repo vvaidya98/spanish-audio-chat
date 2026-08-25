@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { getAllSessions } from '../db'
+import NavButton from './NavButton'
 
 const PAGE_SIZE = 10
 
@@ -69,13 +70,8 @@ export default function HistoryDashboard({ onSelectSession, onExit }) {
 
   return (
     <div>
-      <div className="flex items-center gap-1 mb-4 pb-3 border-b border-border">
-        <button
-          onClick={onExit}
-          className="min-h-[44px] text-small text-ink-muted hover:text-ink font-semibold px-2 rounded-control hover:bg-primary-light transition"
-        >
-          ← Back
-        </button>
+      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-border">
+        <NavButton icon="←" label="Back" onClick={onExit} title="Back" />
         <h2 className="text-heading-1 text-ink ml-2">📊 History</h2>
       </div>
 

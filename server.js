@@ -262,7 +262,7 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.0k' });
+  res.json({ status: 'ok', version: '1.0l' });
 });
 
 app.listen(PORT, () => {

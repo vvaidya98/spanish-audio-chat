@@ -98,9 +98,12 @@ function App() {
 
     return (
       <ConversationView
+        key={scenario}
         scenario={scenario}
         onReset={handleReset}
         onApiError={handleApiError}
+        onChangeMode={handleBackToModes}
+        onDifferentScenario={handleDifferentScenario}
       />
     )
   }
@@ -123,7 +126,7 @@ function App() {
                   📊 History
                 </button>
               )}
-              <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0k</span>
+              <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0l</span>
             </div>
           </div>
 

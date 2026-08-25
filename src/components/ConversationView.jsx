@@ -1,13 +1,16 @@
 import { useState, useRef, useEffect } from 'react'
 import SummaryPanel from './SummaryPanel'
+import LoadingSpinner from './LoadingSpinner'
+import NavButton from './NavButton'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
 import { apiFetch } from '../api'
+import { getScenarioVocab } from '../scenarioVocab'
 
 const MIN_EXCHANGES_BEFORE_END = 5
 const MAX_EXCHANGES = 8
 
-export default function ConversationView({ scenario, onReset, onApiError }) {
+export default function ConversationView({ scenario, onReset, onApiError, onChangeMode, onDifferentScenario }) {
   const [exchanges, setExchanges] = useState([])
   const [currentState, setCurrentState] = useState('starting') // starting, idle, listening, processing, speaking
   const [transcript, setTranscript] = useState('')
@@ -171,6 +174,12 @@ export default function ConversationView({ scenario, onReset, onApiError }) {
     }
   }
 
+  const handleBack = () => {
+    if (synthRef.current) synthRef.current.cancel()
+    if (recognitionRef.current) recognitionRef.current.abort()
+    onReset()
+  }
+
   const handleRepeat = (rate) => {
     if (currentState !== 'idle' || !claudeMessage) return
     playSpanishAudio(claudeMessage, rate)
@@ -205,12 +214,23 @@ export default function ConversationView({ scenario, onReset, onApiError }) {
   const mustEnd = exchangeCount >= MAX_EXCHANGES
   const isIdle = currentState === 'idle'
   const isBusy = currentState === 'processing' || currentState === 'speaking'
+  // 'starting' is only the pre-mount-effect initial state and flips to
+  // 'processing' synchronously before the first paint (see startConversation),
+  // so "still on the opening API call" has to be inferred from having zero
+  // exchanges yet, not from currentState alone.
+  const isInitialLoad = exchangeCount === 0 && (currentState === 'starting' || currentState === 'processing')
 
   return (
     <div>
-      <div className="mb-6 bg-primary-light rounded-card px-4 py-3">
-        <p className="text-body text-primary-text"><strong>Topic:</strong> {scenario}</p>
-        <p className="text-small text-primary-text mt-1">Exchange {displayExchangeNumber} of {MAX_EXCHANGES}</p>
+      <div className="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-border">
+        <NavButton icon="←" label="Back" onClick={handleBack} title="Back to scenarios" />
+        <NavButton icon="📋" label="Change Mode" onClick={onChangeMode} title="Change Mode" />
+        <NavButton icon="🔄" label="Diff Scenario" onClick={onDifferentScenario} title="Different Scenario" />
+      </div>
+
+      <div className="mb-6 border-l-4 border-primary bg-primary-light rounded-r-card px-4 py-2.5">
+        <p className="text-ink font-bold text-heading-2 leading-tight">{scenario}</p>
+        <p className="text-primary-text text-small">Exchange {displayExchangeNumber} of {MAX_EXCHANGES}</p>
       </div>
 
       {error && (
@@ -220,30 +240,34 @@ export default function ConversationView({ scenario, onReset, onApiError }) {
         </div>
       )}
 
-      <div className="mb-6 bg-surface rounded-card shadow-sm border border-border p-4 min-h-[4.5rem] flex items-center">
-        {showText && claudeMessage ? (
-          <p className="text-ink text-body italic">"{claudeMessage}"</p>
-        ) : (
-          <p className="text-ink-muted italic">🎧 Listening mode — text hidden. Tap "Display text" to reveal.</p>
-        )}
-      </div>
+      {isInitialLoad ? (
+        <LoadingSpinner words={getScenarioVocab(scenario)} label="Starting your conversation..." estimatedMs={5000} />
+      ) : (
+        <>
+          <div className="mb-6 bg-surface rounded-card shadow-sm border border-border p-4 min-h-[4.5rem] flex items-center">
+            {showText && claudeMessage ? (
+              <p className="text-ink text-body italic">"{claudeMessage}"</p>
+            ) : (
+              <p className="text-ink-muted italic">🎧 Listening mode — text hidden. Tap "Display text" to reveal.</p>
+            )}
+          </div>
 
-      <div className="flex flex-col items-center mb-6">
-        <div className="text-4xl mb-3">
-          {currentState === 'starting' && '⏳'}
-          {currentState === 'idle' && '💬'}
-          {currentState === 'listening' && '🎧'}
-          {currentState === 'processing' && '⏳'}
-          {currentState === 'speaking' && '🔊'}
-        </div>
-        <p className="text-ink-muted text-center text-small">
-          {currentState === 'starting' && 'Starting conversation...'}
-          {currentState === 'idle' && 'Ready'}
-          {currentState === 'listening' && 'Listening...'}
-          {currentState === 'processing' && 'Processing...'}
-          {currentState === 'speaking' && 'Playing...'}
-        </p>
-      </div>
+          <div className="flex flex-col items-center mb-6">
+            <div className="text-4xl mb-3">
+              {currentState === 'idle' && '💬'}
+              {currentState === 'listening' && '🎧'}
+              {currentState === 'processing' && '⏳'}
+              {currentState === 'speaking' && '🔊'}
+            </div>
+            <p className="text-ink-muted text-center text-small">
+              {currentState === 'idle' && 'Ready'}
+              {currentState === 'listening' && 'Listening...'}
+              {currentState === 'processing' && 'Processing...'}
+              {currentState === 'speaking' && 'Playing...'}
+            </p>
+          </div>
+        </>
+      )}
 
       {transcript && (
         <div className="mb-6 p-4 bg-surface border border-border rounded-card">
@@ -252,7 +276,7 @@ export default function ConversationView({ scenario, onReset, onApiError }) {
         </div>
       )}
 
-      {currentState !== 'starting' && !mustEnd && (
+      {!isInitialLoad && !mustEnd && (
         <div className="grid grid-cols-2 gap-3 mb-4">
           <button
             onClick={startListening}
@@ -275,7 +299,7 @@ export default function ConversationView({ scenario, onReset, onApiError }) {
         </div>
       )}
 
-      {claudeMessage && currentState !== 'starting' && (
+      {claudeMessage && !isInitialLoad && (
         <div className="mb-4">
           <p className="text-ink-muted text-small font-semibold mb-2 text-center">Replay Claude's last message</p>
           <div className="grid grid-cols-3 gap-2 mb-2">
@@ -320,17 +344,6 @@ export default function ConversationView({ scenario, onReset, onApiError }) {
           ✅ End Conversation{mustEnd ? ' (max reached)' : ''}
         </button>
       )}
-
-      <button
-        onClick={() => {
-          if (synthRef.current) synthRef.current.cancel()
-          if (recognitionRef.current) recognitionRef.current.abort()
-          onReset()
-        }}
-        className="w-full min-h-[44px] bg-ink-muted text-white py-3 rounded-control font-semibold hover:bg-ink transition"
-      >
-        New Topic
-      </button>
     </div>
   )
 }

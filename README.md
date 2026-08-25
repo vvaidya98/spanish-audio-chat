@@ -1,4 +1,4 @@
-# Spanish Audio Chat — v1.0k
+# Spanish Audio Chat — v1.0l
 
 A beginner-friendly Spanish conversation practice app with audio voice chat powered by Claude.
 
@@ -6,7 +6,7 @@ A beginner-friendly Spanish conversation practice app with audio voice chat powe
 **Tech Stack:** React 18 + Vite (frontend) | Node.js + Express (backend proxy)  
 **Live app:** https://spanish-audio-chat.netlify.app  
 **Backend:** https://spanish-audio-chat-production.up.railway.app  
-**Current Version:** v1.0k
+**Current Version:** v1.0l
 
 ---
 
@@ -51,7 +51,7 @@ Open http://localhost:5173 in your browser. The frontend will call the backend a
 ### Test
 - Choose a mode: **Conversation Mode** or **Listening Mode**, or pick **🎲 Choose One for Me** on the scenario picker to jump straight in with a random topic (8 scenarios total)
 - **Conversation Mode:** select a topic → "Start Conversation". Claude's opening plays as audio (text hidden). Tap "Tap to Speak", say something in Spanish, tap "Tap to Send". Replay at 1x/0.8x/0.6x, or tap "Display text" to reveal it. Continue for 5-8 exchanges, then "End Conversation" for the summary (transcript + corrections) — this also saves the session to history.
-- **Listening Mode:** select a topic → "Begin Story". A header at the top (← Back, 📋 Change Mode, 🔄 Diff Scenario) is always available. A short story (7-10 sentences, ~100-150 words) plays automatically, sentence by sentence, auto-pausing ~1.3s between sentences to absorb what you heard (text hidden). Controls are icon-based: ⏮ restarts, ▶/⏸ plays or pauses (stops immediately, resumes from the same spot), ⏭ jumps to the last sentence; a progress bar shows "Sentence X of Y"; speed (1x/0.8x/0.6x) changes smoothly mid-playback without skipping ahead. After it finishes, answer 2-3 multiple-choice comprehension questions — hover a question or option to see its English translation, click any underlined word for just that word's definition. Then match 5-10 story words to their English meanings in the Vocabulary Matching exercise. Tap "Display Transcript" for the numbered sentence list: click 🔊 to play just that sentence, 🌐 to toggle its translation, or click a word for its definition. Clicking "← Back" saves the session to history.
+- **Listening Mode:** select a topic → "Begin Story". A prominent nav bar at the top (← Back, 📋 Change Mode, 🔄 Diff Scenario) is always available, alongside a compact scenario header. While the story generates, a circular-progress loading animation with a rotating Spanish word carousel plays. The story (7-10 sentences, ~100-150 words) then plays automatically, sentence by sentence, auto-pausing ~1.3s between sentences to absorb what you heard (text hidden) — if a browser blocks autoplay, a "🔊 Tap to Play" button appears instead of silently doing nothing. Controls are icon-based: ⏮ restarts, ▶/⏸ plays or pauses (stops immediately, resumes from the same spot), ⏭ jumps to the last sentence; a progress bar shows "Sentence X of Y"; speed (1x/0.8x/0.6x) changes smoothly mid-playback without skipping ahead. After it finishes, two toggle buttons appear — "📋 Check Comprehension" (2-3 MCQ questions, hidden until tapped) and "📖 Display Transcript" (numbered sentences with 🔊 play / 🌐 translate icons, also hidden until tapped) — both can be open at once. Match 5-10 story words to their English meanings in the Vocabulary Matching exercise below: correct matches get an animated green checkmark, wrong matches get a red X flash plus an audible beep. Clicking "← Back" saves the session to history.
 - **History:** click "📊 History" in the top bar (from anywhere) to see all past sessions — filter by mode/scenario, click "View" on any card for the full transcript, MCQ/vocab results (Listening), or numbered exchange-by-exchange review with Previous/Next navigation and error highlights (Conversation). Sessions are stored in IndexedDB, local to your browser — check DevTools → Application → IndexedDB → `spanish-audio-chat` → `sessions` to see them directly.
 
 ---
@@ -82,6 +82,7 @@ spanish-audio-chat/
 │   ├── db.js              # IndexedDB session storage (local-only)
 │   ├── api.js             # VITE_API_URL-aware fetch wrapper
 │   ├── analytics.js       # logEvent() — console-only for now
+│   ├── scenarioVocab.js   # Themed word pools for LoadingSpinner's carousel
 │   └── components/
 │       ├── ModeSelector.jsx
 │       ├── ScenarioSelector.jsx
@@ -93,6 +94,8 @@ spanish-audio-chat/
 │       ├── HistoryDashboard.jsx
 │       ├── SessionReview.jsx
 │       ├── HoverableText.jsx
+│       ├── NavButton.jsx      # Shared prominent nav button (44px+, teal)
+│       ├── LoadingSpinner.jsx # Circular progress + word carousel
 │       └── EmailCapture.jsx  # Optional post-session signup (needs VITE_FORMSPREE_URL)
 └── public/                # Static assets (if needed)
 ```
@@ -249,14 +252,17 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 ✅ Multi-turn conversation (5-8 exchanges) with listening-first UX — Claude's text hidden until revealed  
 ✅ Manual "Tap to Speak" / "Tap to Send" flow + 3-speed repeat (1x/0.8x/0.6x)  
 ✅ End-of-conversation summary — full transcript, highlighted errors, corrections  
-✅ Listening Mode — 7-10 sentence stories (10-15 words each, varied vocabulary), icon-based playback controls (⏮ ▶/⏸ ⏭) with progress bar + smooth mid-play speed change + reliable immediate stop, 2-3 MCQ comprehension questions with hover-translate, Vocabulary Matching mini-game, transcript with per-sentence 🔊 play / 🌐 translate icons + click-word definitions, top header with Back / Change Mode / Diff Scenario navigation  
+✅ Listening Mode — 7-10 sentence stories (10-15 words each, varied vocabulary), icon-based playback controls (⏮ ▶/⏸ ⏭) with progress bar + smooth mid-play speed change + reliable immediate stop, toggle-based Comprehension Check / Transcript (hidden until tapped, not auto-shown), Vocabulary Matching mini-game with animated checkmark/X feedback + audio beep on wrong matches, transcript with per-sentence 🔊 play / 🌐 translate icons + click-word definitions, prominent top-of-screen nav buttons (Back / Change Mode / Diff Scenario)  
+✅ Circular-progress loading animation with a rotating scenario-themed Spanish word carousel during story/response generation  
+✅ Audio autoplay fallback — a "🔊 Tap to Play" button appears if a browser silently blocks autoplay, so playback is never silently stuck  
+✅ Mobile-optimized tap targets (44px+) and a compact combined scenario header  
 ✅ 8 scenarios (up from 4) + "Choose One for Me" random-pick-and-start button  
 ✅ Session history — every completed session saved to IndexedDB (local-only), browsable via a History Dashboard (stats, filters, pagination) and per-session Review (Conversation: exchange-by-exchange with error highlights; Listening: transcript + MCQ/vocab results)  
 ✅ Flexible scenario picker with "Start Conversation"/"Begin Story" confirmation step  
 ✅ Card-based design system — centralized color/typography/spacing tokens (teal primary, coral secondary), consistent across every screen  
 ✅ Web Speech API (browser native)  
 ✅ Light background UI (per Vinay's preference)  
-✅ Version badge (v1.0k)  
+✅ Version badge (v1.0l)  
 ✅ Error recovery (back button to change API key or restart)  
 ✅ Deployed to production — Netlify (frontend) + Railway (backend), public GitHub repo with MIT license  
 ✅ Basic analytics logging (console-only for now) + optional post-session email capture form (ships inactive — no Formspree endpoint configured yet)
@@ -312,8 +318,8 @@ The app emphasizes **communication over perfection**. Claude will accept imperfe
 
 ## Development
 
-**Live in production as of v1.0k**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
+**Live in production as of v1.0l**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
 
 ---
 
-**Built by Vinay Vaidya | v1.0k | Last updated: 2026-08-25**
+**Built by Vinay Vaidya | v1.0l | Last updated: 2026-08-25**
