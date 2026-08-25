@@ -126,7 +126,7 @@ function App() {
                   📊 History
                 </button>
               )}
-              <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0l</span>
+              <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0m</span>
             </div>
           </div>
 

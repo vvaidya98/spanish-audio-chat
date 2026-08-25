@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 
-const LETTERS = 'abcdefghij'.split('')
-const WRONG_FLASH_MS = 1500
+const ADVANCE_DELAY_MS = 600
+const RETRY_MESSAGE_MS = 1200
+const DIFFICULTY_RANK = { easy: 0, medium: 1, hard: 2 }
 
 const DIFFICULTY_STYLES = {
   easy: 'bg-primary-light text-primary-text',
@@ -18,176 +19,170 @@ function shuffle(array) {
   return copy
 }
 
-// Short buzz tone for a wrong match, synthesized via Web Audio API so no
-// audio asset needs to ship with the app.
-function playWrongBeep() {
+function playTone(frequency, type, durationSec, volume) {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext
     if (!AudioCtx) return
     const ctx = new AudioCtx()
     const oscillator = ctx.createOscillator()
     const gain = ctx.createGain()
-    oscillator.type = 'square'
-    oscillator.frequency.value = 800
-    gain.gain.value = 0.08
+    oscillator.type = type
+    oscillator.frequency.value = frequency
+    gain.gain.value = volume
     oscillator.connect(gain)
     gain.connect(ctx.destination)
     oscillator.start()
-    oscillator.stop(ctx.currentTime + 0.2)
+    oscillator.stop(ctx.currentTime + durationSec)
     oscillator.onended = () => ctx.close()
   } catch (err) {
-    console.error('Could not play wrong-match sound:', err)
+    console.error('Could not play feedback sound:', err)
   }
 }
 
-export default function VocabularyMatching({ words, onProgressChange }) {
-  const [englishOptions] = useState(() => shuffle(words.map((w, idx) => ({ ...w, wordIdx: idx }))))
-  const [matched, setMatched] = useState(new Set())
-  const [selectedWordIdx, setSelectedWordIdx] = useState(null)
-  const [selectedOptionIdx, setSelectedOptionIdx] = useState(null)
-  const [wrongFlash, setWrongFlash] = useState(null) // { wordIdx, optionIdx } | null
+const playCorrectBeep = () => playTone(880, 'sine', 0.15, 0.08)
+const playWrongBeep = () => playTone(220, 'square', 0.2, 0.08)
 
-  const wrongFlashTimeoutRef = useRef(null)
+// Builds a stable (per-word) set of 1 correct + up to 4 distractor options,
+// drawn from the other words' English translations in this same list.
+function buildOptions(words, wordIdx) {
+  const correct = words[wordIdx]
+  const others = words.filter((_, i) => i !== wordIdx)
+  const distractorCount = Math.min(4, others.length)
+  const distractors = shuffle(others).slice(0, distractorCount)
+  return shuffle([correct, ...distractors])
+}
+
+export default function VocabularyMatching({ words, onProgressChange }) {
+  const sortedWords = useMemo(
+    () => [...words].sort((a, b) => (DIFFICULTY_RANK[a.difficulty] ?? 1) - (DIFFICULTY_RANK[b.difficulty] ?? 1)),
+    [words]
+  )
+
+  const [currentIdx, setCurrentIdx] = useState(0)
+  const [feedback, setFeedback] = useState(null) // { correct: boolean } | null
+  const [showExample, setShowExample] = useState(false)
+  const [locked, setLocked] = useState(false) // true while auto-advance/example is pending
+
+  const options = useMemo(() => buildOptions(sortedWords, currentIdx), [sortedWords, currentIdx])
+  const advanceTimeoutRef = useRef(null)
+  const retryTimeoutRef = useRef(null)
 
   useEffect(() => {
     return () => {
-      if (wrongFlashTimeoutRef.current) clearTimeout(wrongFlashTimeoutRef.current)
+      if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current)
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
     }
   }, [])
 
-  // Reporting progress from inside setMatched's updater (rather than here)
-  // would call the parent's setState while this component is still
-  // rendering/reconciling — React warns "Cannot update a component while
-  // rendering a different component". An effect keyed on `matched` reports
-  // after commit instead, which is the correct place for it.
   useEffect(() => {
-    onProgressChange?.(matched.size, words.length)
+    onProgressChange?.(currentIdx, sortedWords.length)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matched])
+  }, [currentIdx])
 
-  const attemptMatch = (wordIdx, optionIdx) => {
-    const isCorrect = englishOptions[optionIdx].wordIdx === wordIdx
+  const isComplete = currentIdx >= sortedWords.length
+  const currentWord = !isComplete ? sortedWords[currentIdx] : null
+  const hasExample = currentWord && (currentWord.examplePhrase || currentWord.exampleSentence)
+
+  const selectOption = (option) => {
+    if (locked) return
+    const isCorrect = option.english === currentWord.english
+
     if (isCorrect) {
-      setMatched((prev) => new Set(prev).add(wordIdx))
+      setLocked(true)
+      playCorrectBeep()
+      setFeedback({ correct: true })
+
+      if (hasExample) {
+        setShowExample(true)
+      }
+
+      advanceTimeoutRef.current = setTimeout(() => {
+        setFeedback(null)
+        setShowExample(false)
+        setLocked(false)
+        setCurrentIdx((i) => i + 1)
+      }, ADVANCE_DELAY_MS + (hasExample ? ADVANCE_DELAY_MS : 0))
     } else {
-      if (wrongFlashTimeoutRef.current) clearTimeout(wrongFlashTimeoutRef.current)
-      setWrongFlash({ wordIdx, optionIdx })
       playWrongBeep()
-      wrongFlashTimeoutRef.current = setTimeout(() => setWrongFlash(null), WRONG_FLASH_MS)
+      setFeedback({ correct: false })
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
+      retryTimeoutRef.current = setTimeout(() => setFeedback(null), RETRY_MESSAGE_MS)
     }
-    setSelectedWordIdx(null)
-    setSelectedOptionIdx(null)
   }
-
-  const clickWord = (idx) => {
-    if (matched.has(idx)) return
-    if (selectedWordIdx === idx) {
-      setSelectedWordIdx(null)
-      return
-    }
-    setSelectedWordIdx(idx)
-    if (selectedOptionIdx !== null) attemptMatch(idx, selectedOptionIdx)
-  }
-
-  const clickOption = (idx) => {
-    if (matched.has(englishOptions[idx].wordIdx)) return
-    if (selectedOptionIdx === idx) {
-      setSelectedOptionIdx(null)
-      return
-    }
-    setSelectedOptionIdx(idx)
-    if (selectedWordIdx !== null) attemptMatch(selectedWordIdx, idx)
-  }
-
-  const allMatched = matched.size === words.length
 
   return (
     <div className="mb-8 bg-surface rounded-card shadow-sm border border-border p-6">
       <p className="text-heading-2 text-ink mb-1">Vocabulary Matching</p>
       <p className="text-small text-ink-muted mb-4">Match each Spanish word to its English meaning.</p>
 
-      {allMatched && (
-        <div className="mb-4 bg-success-light text-success rounded-control px-4 py-3 text-body font-semibold text-center">
-          🎉 Great job! You matched all {words.length} words.
+      {isComplete ? (
+        <div className="bg-success-light text-success rounded-control px-4 py-3 text-body font-semibold text-center">
+          🎉 Great job! You matched all {sortedWords.length} words.
         </div>
+      ) : (
+        <>
+          <div className="text-center mb-5">
+            {currentWord.difficulty && (
+              <span className={`inline-block text-xs px-2 py-0.5 rounded mb-2 ${DIFFICULTY_STYLES[currentWord.difficulty] || ''}`}>
+                {currentWord.difficulty}
+              </span>
+            )}
+            <p className="text-heading-1 text-ink font-bold">{currentWord.word}</p>
+          </div>
+
+          {feedback && !showExample && (
+            <div
+              className={`mb-4 rounded-control px-4 py-2 text-body font-semibold text-center transition ${
+                feedback.correct ? 'bg-success-light text-success' : 'bg-danger-light text-danger'
+              }`}
+            >
+              {feedback.correct ? '✓ Correct!' : 'Try again!'}
+            </div>
+          )}
+
+          {showExample && (
+            <div className="mb-4 bg-primary-light rounded-control px-4 py-3 text-small space-y-2">
+              {currentWord.examplePhrase && (
+                <div>
+                  <p className="text-primary-text font-semibold">Example: {currentWord.examplePhrase}</p>
+                  <p className="text-ink-muted italic">{currentWord.examplePhraseEnglish}</p>
+                </div>
+              )}
+              {currentWord.exampleSentence && (
+                <div>
+                  <p className="text-primary-text font-semibold">{currentWord.exampleSentence}</p>
+                  <p className="text-ink-muted italic">{currentWord.exampleSentenceEnglish}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
+            {options.map((opt, idx) => (
+              <button
+                key={`${currentIdx}-${idx}`}
+                onClick={() => selectOption(opt)}
+                disabled={locked}
+                className="min-h-[48px] px-4 py-2 rounded-control border border-border bg-surface hover:border-primary text-ink text-body transition disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {opt.english}
+              </button>
+            ))}
+          </div>
+        </>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          {words.map((w, idx) => {
-            const isMatched = matched.has(idx)
-            const isSelected = selectedWordIdx === idx
-            const isWrong = wrongFlash?.wordIdx === idx
-            return (
-              <button
-                key={idx}
-                onClick={() => clickWord(idx)}
-                disabled={isMatched}
-                className={`w-full min-h-[44px] text-left px-3 py-2 rounded-control border text-body transition-colors duration-200 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 ${
-                  isMatched
-                    ? 'bg-success-light border-success text-success cursor-default'
-                    : isWrong
-                      ? 'bg-danger-light border-danger text-danger'
-                      : isSelected
-                        ? 'bg-primary-light border-primary text-primary-text'
-                        : 'bg-surface border-border hover:border-primary text-ink cursor-pointer'
-                }`}
-              >
-                <span className="min-w-0 break-words">
-                  <span className="text-ink-faint mr-2">{idx + 1}.</span>
-                  {w.word}
-                </span>
-                {isMatched ? (
-                  <span className="vocab-check shrink-0">✓</span>
-                ) : isWrong ? (
-                  <span className="vocab-x shrink-0">✗</span>
-                ) : (
-                  w.difficulty && (
-                    <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${DIFFICULTY_STYLES[w.difficulty] || ''}`}>
-                      {w.difficulty}
-                    </span>
-                  )
-                )}
-              </button>
-            )
-          })}
+      <div className="mt-2">
+        <div className="h-2 bg-border rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary transition-all"
+            style={{ width: `${(Math.min(currentIdx, sortedWords.length) / sortedWords.length) * 100}%` }}
+          />
         </div>
-        <div className="space-y-2">
-          {englishOptions.map((opt, idx) => {
-            const isMatched = matched.has(opt.wordIdx)
-            const isSelected = selectedOptionIdx === idx
-            const isWrong = wrongFlash?.optionIdx === idx
-            return (
-              <button
-                key={idx}
-                onClick={() => clickOption(idx)}
-                disabled={isMatched}
-                className={`w-full min-h-[44px] text-left px-3 py-2 rounded-control border text-body transition-colors duration-200 flex flex-wrap items-center gap-x-2 gap-y-0.5 ${
-                  isMatched
-                    ? 'bg-success-light border-success text-success cursor-default'
-                    : isWrong
-                      ? 'bg-danger-light border-danger text-danger'
-                      : isSelected
-                        ? 'bg-primary-light border-primary text-primary-text'
-                        : 'bg-surface border-border hover:border-primary text-ink cursor-pointer'
-                }`}
-              >
-                <span className="text-ink-faint">{LETTERS[idx]}.</span>
-                {opt.english}
-                {isMatched && <span className="vocab-check ml-auto">✓</span>}
-                {isWrong && <span className="vocab-x ml-auto">✗</span>}
-              </button>
-            )
-          })}
-        </div>
+        <p className="text-small text-ink-muted text-center mt-1">
+          {Math.min(currentIdx, sortedWords.length)} of {sortedWords.length} matched
+        </p>
       </div>
-
-      <style>{`
-        @keyframes vocabCheckIn { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
-        @keyframes vocabXIn { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
-        .vocab-check { display: inline-block; animation: vocabCheckIn 0.3s ease; }
-        .vocab-x { display: inline-block; animation: vocabXIn 0.2s ease; }
-      `}</style>
     </div>
   )
 }

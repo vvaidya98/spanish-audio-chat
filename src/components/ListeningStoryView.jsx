@@ -68,7 +68,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
   // effect (mount -> cleanup -> mount): without it, two independent loadStory()
   // calls both eventually call speakSentenceAt(0), racing each other and
   // producing audible word repetition/stutter at story start.
-  const loadStory = async (isStale) => {
+  const loadStory = async (isStale, regenerate = false) => {
     setLoading(true)
     setError('')
 
@@ -76,7 +76,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
       const storyResponse = await apiFetch('/api/generate-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario }),
+        body: JSON.stringify({ scenario, regenerate }),
       })
       if (!storyResponse.ok) {
         const errorData = await storyResponse.json().catch(() => ({}))
@@ -219,6 +219,24 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
     synthRef.current.speak(utterance)
   }
 
+  const handleRegenerateStory = () => {
+    if (gapTimeoutRef.current) clearTimeout(gapTimeoutRef.current)
+    pausedRef.current = false
+    pauseContextRef.current = null
+    utteranceTokenRef.current++
+    if (synthRef.current) synthRef.current.cancel()
+
+    setPlayStatus('idle')
+    setCurrentIndex(0)
+    setUserAnswers({})
+    setShowMCQ(false)
+    setShowTranscript(false)
+    setVocabMatchedCount(0)
+    setAutoplayFailed(false)
+
+    loadStory(() => false, true)
+  }
+
   const handleTapToPlay = () => {
     setAutoplayFailed(false)
     speakSentenceAt(0)
@@ -269,6 +287,16 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
     utteranceTokenRef.current++
     synthRef.current.cancel()
     speakSentenceAt(sentencesRef.current.length - 1)
+  }
+
+  const handleJumpToSentence = (idx) => {
+    if (gapTimeoutRef.current) clearTimeout(gapTimeoutRef.current)
+    pausedRef.current = false
+    pauseContextRef.current = null
+    utteranceTokenRef.current++
+    synthRef.current.cancel()
+    setAutoplayFailed(false)
+    speakSentenceAt(idx)
   }
 
   const handleSpeedChange = (newRate) => {
@@ -375,7 +403,12 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
 
   return (
     <div>
-      <ListeningHeader onBack={handleBackWithSave} onChangeMode={onChangeMode} onDifferentScenario={onDifferentScenario} />
+      <ListeningHeader
+        onBack={handleBackWithSave}
+        onChangeMode={onChangeMode}
+        onDifferentScenario={onDifferentScenario}
+        onRegenerate={story ? handleRegenerateStory : undefined}
+      />
 
       <div className="mb-6 border-l-4 border-primary bg-primary-light rounded-r-card px-4 py-2.5">
         <p className="text-ink font-bold text-heading-2 leading-tight">{scenario}</p>
@@ -449,6 +482,26 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 justify-center mt-4">
+              {sentencesRef.current.map((_, idx) => {
+                const isCurrent = idx === currentIndex
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => handleJumpToSentence(idx)}
+                    title={`Jump to sentence ${idx + 1}`}
+                    className={`w-8 h-8 rounded-control text-xs font-semibold transition flex items-center justify-center ${
+                      isCurrent
+                        ? 'bg-primary text-white'
+                        : 'bg-primary-light text-primary-text hover:bg-primary/20'
+                    }`}
+                  >
+                    {idx + 1}
+                  </button>
+                )
+              })}
             </div>
           </div>
 

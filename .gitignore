@@ -31,3 +31,6 @@ logs/
 
 # Local Netlify folder
 .netlify
+
+# Backend story cache (local/ephemeral, regenerated on demand)
+.cache/

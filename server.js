@@ -1,9 +1,55 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Anthropic } from '@anthropic-ai/sdk';
 
 dotenv.config();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CACHE_DIR = path.join(__dirname, '.cache');
+const STORIES_CACHE_PATH = path.join(CACHE_DIR, 'stories.json');
+
+// File-based cache, local to this running process. Note: hosting platforms
+// with ephemeral filesystems (Railway included) don't persist this across
+// redeploys/restarts — it speeds up repeat requests within one running
+// server instance, not across deploys.
+function ensureCacheDir() {
+  if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+}
+
+function readStoriesCache() {
+  try {
+    ensureCacheDir();
+    if (!fs.existsSync(STORIES_CACHE_PATH)) return {};
+    return JSON.parse(fs.readFileSync(STORIES_CACHE_PATH, 'utf-8'));
+  } catch (err) {
+    console.error('Failed to read stories cache:', err);
+    return {};
+  }
+}
+
+function writeStoriesCache(cache) {
+  try {
+    ensureCacheDir();
+    fs.writeFileSync(STORIES_CACHE_PATH, JSON.stringify(cache, null, 2));
+  } catch (err) {
+    console.error('Failed to write stories cache:', err);
+  }
+}
+
+function getCachedStory(scenario) {
+  const cache = readStoriesCache();
+  return cache[scenario] || null;
+}
+
+function cacheStory(scenario, storyData) {
+  const cache = readStoriesCache();
+  cache[scenario] = storyData;
+  writeStoriesCache(cache);
+}
 
 const app = express();
 const client = new Anthropic({
@@ -129,11 +175,20 @@ If the user's Spanish had no errors worth flagging, return "errors": []. Only fl
  * that scenario's vocabulary, plus a word-by-word vocabulary list for tooltips.
  */
 app.post('/api/generate-story', async (req, res) => {
-  const { scenario } = req.body;
+  const { scenario, regenerate } = req.body;
 
   if (!scenario) {
     return res.status(400).json({ error: 'Missing scenario' });
   }
+
+  if (!regenerate) {
+    const cached = getCachedStory(scenario);
+    if (cached) {
+      console.log(`Using cached story for ${scenario}`);
+      return res.json(cached);
+    }
+  }
+  console.log(regenerate ? `Regenerating story for ${scenario}` : `No cache hit, generating story for ${scenario}`);
 
   try {
     const message = await client.messages.create({
@@ -173,10 +228,12 @@ The "vocabulary" array must include an entry for EVERY distinct word that appear
     const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
     const parsed = extractJson(rawText);
 
-    res.json({
+    const storyData = {
       sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
       vocabulary: Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [],
-    });
+    };
+    cacheStory(scenario, storyData);
+    res.json(storyData);
   } catch (error) {
     console.error('Error in /api/generate-story:', error);
     res.status(500).json({
@@ -199,7 +256,7 @@ app.post('/api/story-questions', async (req, res) => {
   try {
     const message = await client.messages.create({
       model: 'claude-opus-4-8',
-      max_tokens: 3000,
+      max_tokens: 4500,
       messages: [
         {
           role: 'user',
@@ -229,11 +286,19 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
     { "word": "dónde", "english": "where" }
   ],
   "matchingWords": [
-    { "word": "restaurante", "english": "restaurant", "difficulty": "easy" }
+    {
+      "word": "restaurante",
+      "english": "restaurant",
+      "difficulty": "easy",
+      "examplePhrase": "un buen restaurante",
+      "examplePhraseEnglish": "a good restaurant",
+      "exampleSentence": "Vamos a un restaurante nuevo.",
+      "exampleSentenceEnglish": "We're going to a new restaurant."
+    }
   ]
 }
 
-"question_english" is the exact English translation of "question_spanish", and each option's "english" is the exact translation of its "text" — these drive hover-to-translate in the UI. "vocabulary" must include an entry for EVERY distinct word appearing across all questions and all options (including small common words like "el", "la", "de", "es", "y", "un"), lowercased and stripped of punctuation, for word-level click-to-define — this is separate from and may include words not in the story's own vocabulary list (e.g. question words like "dónde", "quién"). "matchingWords" is separate again — 5-10 entries, "difficulty" is one of "easy"/"medium"/"hard", with a genuine mix across the set (not all the same level).`,
+"question_english" is the exact English translation of "question_spanish", and each option's "english" is the exact translation of its "text" — these drive hover-to-translate in the UI. "vocabulary" must include an entry for EVERY distinct word appearing across all questions and all options (including small common words like "el", "la", "de", "es", "y", "un"), lowercased and stripped of punctuation, for word-level click-to-define — this is separate from and may include words not in the story's own vocabulary list (e.g. question words like "dónde", "quién"). "matchingWords" is separate again — 5-10 entries, "difficulty" is one of "easy"/"medium"/"hard", with a genuine mix across the set (not all the same level); each entry also needs "examplePhrase" (a short 2-4 word Spanish phrase using the word, not just the bare word) + "examplePhraseEnglish" (its translation), and "exampleSentence" (a full simple Spanish sentence using the word, different from how it's used in the story) + "exampleSentenceEnglish" (its translation) — these teach the word in a new context beyond the story itself.`,
         },
       ],
     });
@@ -262,7 +327,7 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.0l' });
+  res.json({ status: 'ok', version: '1.0m' });
 });
 
 app.listen(PORT, () => {

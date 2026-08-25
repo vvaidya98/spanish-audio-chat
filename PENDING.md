@@ -1,5 +1,5 @@
 # PENDING.md — Spanish Audio Chat
-## Last updated: 2026-08-25 (v1.0l ship)
+## Last updated: 2026-08-25 (v1.0m ship)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -289,10 +289,13 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 **Done — v1.0l:**
 - SAC-018–024: Phase 1 UX enhancements (nav buttons, story completion toggles, vocab animations, loading spinner, mobile tap targets, compact mobile header, audio autoplay fallback) — see DONE section
 
+**Done — v1.0m:**
+- SAC-025–029: Phase 2 batch 1-2 (mode reorder, sentence jump markers, one-at-a-time vocab matching, vocab example phrases/sentences, story caching + regenerate) — see DONE section
+
 **Next:**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
 2. Set a real `VITE_FORMSPREE_URL` so the email capture form goes live (code is shipped but no-ops without it)
-3. Phase 2 (v1.0m): SAC-025–029
+3. SAC-030: Difficulty selector (Phase 3+)
 
 ---
 
@@ -328,12 +331,14 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 
 See DONE section for full implementation notes.
 
-### Phase 2 (target v1.0m) — Major UX Improvements
-- [ ] SAC-025: Reorder main screen (Listening Mode first, not Conversation)
-- [ ] SAC-026: Progress bar with jump-to-sentence markers
-- [ ] SAC-027: Vocabulary matching redesigned as one-at-a-time (easy→hard, 4-5 options each) instead of all-at-once grid
-- [ ] SAC-028: Vocabulary context — example phrases/sentences alongside each word
-- [ ] SAC-029: Story caching — pre-generate + cache, add a "regenerate" button instead of always calling the API fresh
+### Phase 2 — SHIPPED in v1.0m
+- [x] SAC-025: Reorder main screen (Listening Mode first, not Conversation)
+- [x] SAC-026: Progress bar with jump-to-sentence markers
+- [x] SAC-027: Vocabulary matching redesigned as one-at-a-time (easy→hard, 4-5 options each) instead of all-at-once grid
+- [x] SAC-028: Vocabulary context — example phrases/sentences alongside each word
+- [x] SAC-029: Story caching — pre-generate + cache, add a "regenerate" button instead of always calling the API fresh
+
+See DONE section for full implementation notes.
 
 ### Phase 3+ (future, not yet scheduled)
 - [ ] SAC-030: Difficulty selector (A1 Beginner / A1.5-A2 Intermediate / B1+ Advanced)
@@ -406,6 +411,14 @@ See DONE section for full implementation notes.
 - [x] SAC-024: Audio playback autoplay bug — investigated and given a fallback rather than "fixed" outright, since the root cause (mobile browser user-activation policies) can't be confirmed from this environment (see the diagnostic round's PENDING.md entry above: Playwright's WebKit test build has no Web Speech API at all, so real mobile Safari/Chrome autoplay behavior remains unverified against a real device). Added detection instead: ~900ms after a story's opening `speak()` call, `ListeningStoryView.jsx` checks whether the engine actually reports `speaking` (and isn't just legitimately resting in the natural inter-sentence gap — checked via `gapTimeoutRef` so a real completed-and-resting utterance isn't misflagged); if speech never started at all, a prominent teal "🔊 Tap to Play" banner appears, calling `speakSentenceAt(0)` from a direct click handler (which should satisfy any user-activation requirement regardless of the exact policy). Verified end-to-end with a synth mock that silently swallows `speak()` (simulating a hard autoplay block): fallback banner appears, is 44px+, and tapping it successfully starts real playback and makes the banner disappear. Also caught and fixed a false-positive during testing: the initial detection logic flagged failure whenever `speaking` was false at the 900ms check, but with short utterances that's also true during the *legitimate* 1.3s gap between sentences — added the `gapTimeoutRef` check specifically to distinguish "genuinely never started" from "already finished sentence 1 and is resting before sentence 2."
 
 **Decisions made without an explicit spec, v1.0l:** (1) This prompt's own SAC numbering (SAC-016 through SAC-022) collided with already-shipped v1.0k work — built against the renumbered SAC-018–024 mapping established in the prior diagnostic round instead of re-litigating it. (2) ConversationView.jsx gained a full header nav row it never had before (Back/Change Mode/Diff Scenario) rather than just restyling what little existed, since the prompt's acceptance criteria explicitly required consistency across all screens including Conversation. (3) Real device testing (actual iPhone Safari / Android Chrome) isn't possible from this environment — all mobile claims are backed by Playwright's Chromium mobile-viewport emulation (Android Chrome proxy) and WebKit engine with iPhone device emulation (Safari proxy), both real rendering/storage/layout engines, not just a resized desktop browser window; disclosed explicitly rather than implied as equivalent to physical-device testing.
+
+### Shipped in v1.0m
+- [x] SAC-025: Reorder main screen — `ModeSelector.jsx`'s two buttons swapped so 🎧 Listening Mode renders first, 🗣️ Conversation Mode second. Pure JSX reorder, no styling/behavior change; both modes still route correctly.
+- [x] SAC-026: Sentence jump markers — new `handleJumpToSentence(idx)` in `ListeningStoryView.jsx` (same cancel-and-restart pattern as the existing `handleJumpToEnd`, parameterized), rendered as a row of compact 32×32px numbered buttons below the progress bar (one per sentence, current sentence solid teal, others light teal with hover) that wraps via `flex-wrap` for stories with many sentences. Deliberately sized smaller (32px) than the app's usual 44px tap-target convention — an explicit spec call for this specific dense multi-button row, not an accessibility regression elsewhere.
+- [x] SAC-027 + SAC-028: Vocabulary matching — complete rewrite of `VocabularyMatching.jsx` from an all-at-once two-column grid to one-word-at-a-time. Words sort easy→medium→hard once on mount (`useMemo`); each word gets 4-5 shuffled options (1 correct + up to 4 distractors drawn from the *other* words in the same list, gracefully fewer if the word list itself has fewer than 5 entries). Correct match: success beep (880Hz sine) → if the word has example data, a phrase + sentence box (both Spanish and English) replaces the "✓ Correct!" banner for 600ms → auto-advances. Incorrect: error beep (220Hz square, distinct tone from the wrong-match beep introduced in v1.0l) → "Try again!" message → stays on the same word, all options remain clickable for a retry (nothing gets disabled). Progress bar at the bottom reflects words completed. Backend (`server.js` `/api/story-questions`): prompt extended to request `examplePhrase`/`examplePhraseEnglish`/`exampleSentence`/`exampleSentenceEnglish` per matching word (a phrase and a full sentence, each with its translation, using the word in a *new* context beyond the story itself); `max_tokens` raised 3000 → 4500 to fit the ~4x larger response.
+- [x] SAC-029: Story caching + regenerate — new file-based cache in `server.js` (`.cache/stories.json`, keyed by scenario name; `ensureCacheDir`/`readStoriesCache`/`writeStoriesCache`/`getCachedStory`/`cacheStory` helpers). `/api/generate-story` now accepts a `regenerate` boolean: `false`/omitted checks cache first and returns instantly on a hit (`console.log('Using cached story for X')`); a miss or `regenerate: true` always calls Claude fresh and caches the result. Verified via direct `curl` timing: cached response in 157ms vs. ~16s+ for a fresh call. **Caveat documented, not hidden:** this is a local JSON file, which does not survive a Railway redeploy/restart (ephemeral filesystem) — it speeds up repeat requests within one running server process, not indefinitely. Frontend: `ListeningStoryView.jsx`'s `loadStory()` takes a `regenerate` param threaded through to the request body; new `handleRegenerateStory()` resets all playback/session UI state and calls `loadStory(() => false, true)`; new "🔄 Regenerate Story" button added to `ListeningHeader.jsx` (via an optional `onRegenerate` prop, only passed once a story is actually loaded — not during the initial loading state, since there's nothing yet to regenerate).
+
+**Decisions made without an explicit spec, v1.0m:** (1) No SAC ID collision this round — the prompt used the exact renumbered IDs (SAC-025–029) already established in the prior diagnostic round, first time that's lined up cleanly. (2) The 32px sentence-jump-marker size is smaller than this project's usual 44px tap-target rule; followed the prompt's explicit "28-32px square" spec instead of the general rule, since it was a deliberate, specific instruction for this one dense-button-row case. (3) Cache scoped exactly as specified — only `/api/generate-story`, not `/api/story-questions` — so a "second load" of the same scenario is faster but not instant, since the (now heavier, SAC-028-driven) questions call still runs fresh every time; verified this wasn't a caching bug by timing the cached endpoint in isolation (157ms) before concluding the perceived total-load-time improvement was smaller than naively expected. (4) Testing this round again needed generous timeouts — uncached story generation plus the heavier post-SAC-028 questions call can take 40-60s combined in dev (further inflated by React StrictMode's double-invoke of the mount effect, which fires two real API calls per load in dev only, not production); an initial 60s test timeout was too tight and looked like a failure before a longer wait confirmed everything actually worked.
 
 ---
 
