@@ -292,6 +292,52 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 
 ---
 
+## 🟠 PENDING BUILD (v1.0k → v1.0l/v1.0m) — Phase 1-2 Enhancement Roadmap
+
+**Source:** A handoff/roadmap doc (not a numbered Prompt, no Testing Requirements/Acceptance Criteria sections — one-line descriptions only) received to prime a new conversation thread. Doc self-labels its items SAC-016 through SAC-027 plus SAC-011-A — **these collide with already-shipped/active IDs** (SAC-016 = analytics/email capture, shipped v1.0k; SAC-017 = GitHub auto-deploy, still open above; SAC-011 was retired/renamed to SAC-013 back in the SAC-014 numbering round). Renumbered the entire batch sequentially starting at the next free ID (SAC-018) to avoid a confusing partial-collision fix — see mapping below. This is the same resolution pattern used repeatedly for the SAC-014-E/F/G collisions; documented here rather than asked about since none of these numbers have been referenced back to Vinay yet.
+
+**Renumbering map (doc's original ID → actual PENDING.md ID):**
+| Doc's ID | → | Actual ID | Item |
+|---|---|---|---|
+| SAC-016 | → | **SAC-018** | Navigation buttons (text → buttons) |
+| SAC-017 | → | **SAC-019** | Story completion flow (toggle MCQ & transcript) |
+| SAC-018 | → | **SAC-020** | Vocabulary animations (checkmark, red X, sound) |
+| SAC-019 | → | **SAC-021** | Loading animation (progress bar + animated words) |
+| SAC-020 | → | **SAC-022** | Mobile tap targets (44px+, responsive) |
+| SAC-021 | → | **SAC-023** | Mobile header (combine cards, reduce space) |
+| SAC-022 | → | **SAC-024** | Audio playback bug (mobile vs. web autoplay) |
+| SAC-023 | → | **SAC-025** | Reorder main screen (Listening first) |
+| SAC-024 | → | **SAC-026** | Progress bar (jump-to-sentence markers) |
+| SAC-025 | → | **SAC-027** | Vocabulary one-at-a-time (easy→hard, 4-5 options) |
+| SAC-026 | → | **SAC-028** | Vocabulary context (example phrases + sentences) |
+| SAC-027 | → | **SAC-029** | Story caching (pre-generate, regenerate button) |
+| SAC-011-A | → | **SAC-030** | Difficulty selector (A1 Beginner / A1.5-A2 Intermediate / B1+ Advanced) |
+
+### Phase 1 (target v1.0l) — Quick Wins + Mobile Polish
+- [ ] SAC-018: Navigation buttons (text links → real buttons)
+- [ ] SAC-019: Story completion flow (toggle MCQ & transcript sections)
+- [ ] SAC-020: Vocabulary animations (checkmark, red X, sound on match/miss)
+- [ ] SAC-021: Loading animation (progress bar + animated words during story/response generation)
+- [ ] SAC-022: Mobile tap targets (44px+, responsive)
+- [ ] SAC-023: Mobile header (combine cards, reduce vertical space)
+- [ ] SAC-024: Audio playback bug — investigate mobile Safari vs. desktop Chrome autoplay behavior
+
+### Phase 2 (target v1.0m) — Major UX Improvements
+- [ ] SAC-025: Reorder main screen (Listening Mode first, not Conversation)
+- [ ] SAC-026: Progress bar with jump-to-sentence markers
+- [ ] SAC-027: Vocabulary matching redesigned as one-at-a-time (easy→hard, 4-5 options each) instead of all-at-once grid
+- [ ] SAC-028: Vocabulary context — example phrases/sentences alongside each word
+- [ ] SAC-029: Story caching — pre-generate + cache, add a "regenerate" button instead of always calling the API fresh
+
+### Phase 3+ (future, not yet scheduled)
+- [ ] SAC-030: Difficulty selector (A1 Beginner / A1.5-A2 Intermediate / B1+ Advanced)
+
+### Known issues flagged alongside this roadmap — diagnosed 2026-08-25
+- **History Dashboard "0 sessions" — root cause: not a bug, an expectation mismatch.** Re-tested against production using Playwright's WebKit engine (Safari's actual rendering/storage engine, iPhone 13 emulation) rather than Chromium: a session saved and completed in one browser context correctly appeared in History (`1 Total Sessions`) in the same context; a **separate, fresh browser context with no prior session correctly showed `0 Total Sessions`**. IndexedDB is per-origin *and* per-browser-profile — sessions completed on one device/browser never appear on another device/browser/incognito window, by design (this was already documented as a known characteristic in CLAUDE.md's IndexedDB section, just not obviously visible reasoning to someone hitting it live). If "0 sessions" was reported on a *device that had actually completed a session earlier*, that would be a real bug and needs a repro with those specifics (which device, which browser, private/regular window, was a session actually completed there beforehand) — not yet confirmed as an actual repro.
+- **Audio autoplay — root cause diagnosed from code, NOT verified against a real device (environment limitation, see below).** Both `ConversationView.jsx`'s opening line and `ListeningStoryView.jsx`'s story playback call `speechSynthesis.speak()` from *inside an async chain following a mount effect* (`useEffect` → `await fetch(...)` → `playSpanishAudio()` / `setTimeout(..., 300)` → `speakSentenceAt(0)`), never synchronously inside a click handler. Mobile Safari (and increasingly other mobile browsers) enforce a "user activation" requirement for `speechSynthesis.speak()` — the activation window from the original scenario-selection tap is very likely expired by the time these async calls fire, which would silently no-op the audio with no visible error. Desktop Chrome is historically more lenient here, matching the reported "web auto-plays, mobile doesn't" split. **Could not verify this against a real device or real Safari from this environment** — Playwright's WebKit test build (confirmed via direct check) does not implement `speechSynthesis`/`SpeechSynthesisUtterance` at all, so it can't reproduce or disprove the autoplay-policy theory, only support it via code inspection. The fix either way is the same: add a "Tap to play" fallback control that starts playback from a direct click handler (this is what SAC-024 already targets).
+
+---
+
 ## 💡 Ideas Parked for Phase 2
 
 - Difficulty selector (absolute beginner → intermediate → advanced)
