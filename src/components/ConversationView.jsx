@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import SummaryPanel from './SummaryPanel'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
+import { apiFetch } from '../api'
 
 const MIN_EXCHANGES_BEFORE_END = 5
 const MAX_EXCHANGES = 8
@@ -69,7 +70,7 @@ export default function ConversationView({ scenario, onReset, onApiError }) {
     setError('')
 
     try {
-      const response = await fetch('/api/initiate', {
+      const response = await apiFetch('/api/initiate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scenario })
@@ -139,7 +140,7 @@ export default function ConversationView({ scenario, onReset, onApiError }) {
     transcriptRef.current = ''
 
     try {
-      const response = await fetch('/api/respond', {
+      const response = await apiFetch('/api/respond', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userInput, scenario })

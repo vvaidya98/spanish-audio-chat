@@ -5,6 +5,7 @@ import VocabularyMatching from './VocabularyMatching'
 import EmailCapture from './EmailCapture'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
+import { apiFetch } from '../api'
 
 const SENTENCE_GAP_MS = 1300
 
@@ -68,7 +69,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
     setError('')
 
     try {
-      const storyResponse = await fetch('/api/generate-story', {
+      const storyResponse = await apiFetch('/api/generate-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scenario }),
@@ -83,7 +84,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode, onD
       sentencesRef.current = storyData.sentences || []
 
       const storyText = (storyData.sentences || []).map((s) => s.spanish).join(' ')
-      const questionsResponse = await fetch('/api/story-questions', {
+      const questionsResponse = await apiFetch('/api/story-questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scenario, story_text: storyText }),
