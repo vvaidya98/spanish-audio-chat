@@ -1,5 +1,5 @@
 # PENDING.md — Spanish Audio Chat
-## Last updated: 2026-08-24 (v1.0j ship)
+## Last updated: 2026-08-25 (v1.0k ship)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -30,11 +30,11 @@
 
 - [x] SAC-001: Local testing complete (both frontend + backend running)
 - [x] SAC-002: Conversation flow working end-to-end (speak Spanish → Claude responds + feedback)
-- [ ] SAC-003: GitHub repo created (private), main branch set up
-- [ ] SAC-004: Netlify connected (frontend auto-deploy from GitHub)
-- [ ] SAC-005: Railway connected (backend auto-deploy from GitHub)
-- [ ] SAC-006: Production API URL tested (not localhost)
-- [ ] SAC-007: Final documentation review (README, CLAUDE.md, PENDING.md current)
+- [x] SAC-003: GitHub repo created (**public**, not private as originally noted — Vinay created it manually), `main` branch, MIT LICENSE — https://github.com/vvaidya98/spanish-audio-chat
+- [x] SAC-004: Netlify connected — deployed via CLI (`netlify deploy --prod`), not yet linked to GitHub for auto-deploy-on-push (see SAC-016) — https://spanish-audio-chat.netlify.app
+- [x] SAC-005: Railway connected — deployed via CLI (`railway up`), not yet linked to GitHub for auto-deploy-on-push (see SAC-016) — https://spanish-audio-chat-production.up.railway.app
+- [x] SAC-006: Production API URL tested — real Playwright run against the live Netlify URL hitting the live Railway backend hitting the real Claude API, confirmed end-to-end (see v1.0k decision log)
+- [x] SAC-007: Final documentation review — README/CLAUDE.md/PENDING.md updated for v1.0k
 
 ---
 
@@ -46,7 +46,7 @@
 
 ## 🟢 OPEN QUESTIONS — Decide Before or During Build
 
-- [ ] **SAC-009: Production frontend-to-backend URL routing** — Should frontend use environment variables for API base URL (dev vs prod), or hardcode production URL after deploy? Recommendation: use env var (VITE_API_URL) so same build works in dev and prod.
+- [x] **SAC-009: Production frontend-to-backend URL routing** — Decided and shipped in v1.0k: `src/api.js` reads `VITE_API_URL` at build time; unset in dev (relative paths through the Vite proxy), set to the Railway URL for the Netlify production build.
 
 ---
 
@@ -282,12 +282,13 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - SAC-013: Session Persistence (IndexedDB) — see DONE section
 - SAC-015: Scenario Expansion, Button Fix & History Dashboard/Review — see DONE section
 
+**Done — v1.0k:**
+- SAC-003–007: Production deployment (GitHub, Netlify, Railway, prod URL testing, doc review) — see DONE section
+- SAC-016: Basic analytics logging + optional email capture — see DONE section
+
 **Next:**
-1. SAC-003: Create GitHub repo
-2. SAC-004: Deploy frontend to Netlify
-3. SAC-005: Deploy backend to Railway
-4. SAC-006: Test production URLs
-5. SAC-007: Final doc review
+1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
+2. Set a real `VITE_FORMSPREE_URL` so the email capture form goes live (code is shipped but no-ops without it)
 
 ---
 
@@ -337,6 +338,12 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 ### Shipped in v1.0j
 - [x] SAC-013 + SAC-015: New `src/db.js` — local-only IndexedDB wrapper (`sessions` store, indexes on `mode`/`scenario`/`timestamp`); `ConversationView.jsx` saves a session on "End Conversation" (exchanges, error count, duration); `ListeningStoryView.jsx` saves on the header's "← Back" (story, questions, user answers, MCQ correct count, vocabulary-matched count — `VocabularyMatching.jsx` gained an `onProgressChange` callback prop so the parent can track match progress without lifting its internal state). New `HistoryDashboard.jsx` (stats header, mode + scenario filters, 10-per-page pagination, session cards) and `SessionReview.jsx` (Conversation: Previous/Next exchange nav with error highlights/corrections; Listening: full transcript + MCQ correct/incorrect badges + vocabulary summary), both wired into `App.jsx` via a new 📊 History link in the top bar. `ScenarioSelector.jsx`: "Different Scenarios" renamed "Choose One for Me" and now picks-and-starts immediately (was previously a no-op reset); scenario list expanded 4 → 8 (At the Airport/Hotel, At a Pharmacy/Doctor, Shopping in a Store, Asking for Help/Emergency added). Built and tested (2026-08-24) — verified sessions persist across a real page reload, correct filtering, and both review types with real screenshots; checked PERSONAL_STYLE.md for the persistence rules CLAUDE.md's Data Integrity Rules section anticipated referencing — found the file, but its "clear-then-insert / identity matching" guidance is written for shared multi-user databases, which doesn't apply to this local-only, per-browser IndexedDB store, so proceeded with a straightforward design instead.
 
+### Shipped in v1.0k
+- [x] SAC-003–007: Production deployment. `git init` + MIT `LICENSE` + first commit, pushed to a public GitHub repo Vinay created manually (https://github.com/vvaidya98/spanish-audio-chat, force-pushed over GitHub's auto-generated placeholder README/LICENSE/gitignore). Backend deployed to Railway via CLI (`railway up`) at https://spanish-audio-chat-production.up.railway.app — required a new `railway.json` to stop Nixpacks from auto-running the frontend's `npm run build` (this service only runs the Express backend via `npm run backend`), and `terser` added as a devDependency (`vite build` needs it for the `minify: 'terser'` config, was previously untested since only `npm run dev` had been used). Frontend deployed to Netlify via CLI (`netlify deploy --prod`) at https://spanish-audio-chat.netlify.app. New `src/api.js` wraps `fetch` with a `VITE_API_URL`-aware base (unset in dev → Vite proxy; set to the Railway URL for the prod build) — replaces the 4 raw `fetch('/api/...')` call sites in `ConversationView.jsx`/`ListeningStoryView.jsx`. Verified end-to-end with a real (non-mocked-backend) Playwright run against the live Netlify URL: real Claude response via the live Railway backend, 5-exchange conversation saved, History Dashboard showing correct stats, IndexedDB session confirmed to survive a real page reload — screenshot `prod-01-history.png`.
+- [x] SAC-016: Basic analytics + email capture. New `src/analytics.js` (`logEvent`, console-only for now — no analytics account set up yet, swap-in point documented) logging `page_view`, `session_started`/`session_completed` (both modes, with outcome data), and `history_dashboard_viewed`. New `EmailCapture.jsx` — optional post-session signup form (`SummaryPanel.jsx` for Conversation, end of `ListeningStoryView.jsx` for Listening), posts to a Formspree endpoint read from `VITE_FORMSPREE_URL`; renders nothing if that env var is unset, so it's safe to ship without a real Formspree form yet (Vinay chose to skip creating one this round).
+
+**Decisions made without an explicit spec, v1.0k:** (1) Railway needed a dedicated `railway.json` — Nixpacks' auto-detection otherwise tries to build the frontend too, which fails without `terser`; scoped the fix to a backend-only build/start command rather than making the frontend buildable there, since Railway never needs to serve it. (2) `.env` turned out to have leading whitespace before `ANTHROPIC_API_KEY=`, which silently produced an empty value on the first Railway env var set (anchored `grep '^ANTHROPIC_API_KEY='` matched nothing) — caught via a live `/api/initiate` call returning an auth error, not by an automated check; fixed the extraction and redeployed. (3) GitHub's repo creation defaults added a placeholder README/LICENSE/gitignore despite asking for an empty repo — confirmed the content was trivial (one-line README, template files, no real work) before force-pushing over it. (4) Netlify/Railway are deployed via CLI, not GitHub-connected — auto-deploy-on-push (part of the original acceptance criteria) is not yet wired up; tracked as SAC-017.
+
 ---
 
 ## Notes for Claude Code Sessions
@@ -345,4 +352,4 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 
 **Testing:** Every Prompt's response should include concrete UI testing steps and reported results. Example: "Opened app, selected 'Introducing Yourself', clicked mic, said 'Hola me llamo Vinay', Claude responded with 'Mucho gusto! ¿De dónde eres?' + feedback 'Good introduction!' ✅"
 
-**Staging:** Localhost testing is complete. Next: GitHub setup, then Netlify + Railway production deploy.
+**Staging:** Production deployment complete as of v1.0k — see https://spanish-audio-chat.netlify.app (frontend) and https://spanish-audio-chat-production.up.railway.app (backend). Auto-deploy-on-push not yet configured (SAC-017) — deploys are currently manual (`netlify deploy --prod`, `railway up`).

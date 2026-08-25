@@ -1,11 +1,12 @@
-# Spanish Audio Chat — v1.0j
+# Spanish Audio Chat — v1.0k
 
 A beginner-friendly Spanish conversation practice app with audio voice chat powered by Claude.
 
-**Status:** MVP (Phase 1) — locally tested & working  
+**Status:** Live in production  
 **Tech Stack:** React 18 + Vite (frontend) | Node.js + Express (backend proxy)  
-**Hosting:** Netlify (frontend) + Railway (backend) — coming soon  
-**Current Version:** v1.0j
+**Live app:** https://spanish-audio-chat.netlify.app  
+**Backend:** https://spanish-audio-chat-production.up.railway.app  
+**Current Version:** v1.0k
 
 ---
 
@@ -69,6 +70,8 @@ spanish-audio-chat/
 ├── tailwind.config.js     # Tailwind CSS config
 ├── postcss.config.js      # PostCSS config
 ├── Procfile               # Railway deployment
+├── railway.json           # Railway build/start override (backend-only)
+├── LICENSE                # MIT
 ├── .env                   # Local secrets (gitignored)
 ├── .env.example           # Template for .env
 ├── .gitignore             # Git ignore rules
@@ -77,6 +80,8 @@ spanish-audio-chat/
 │   ├── App.jsx            # Root component
 │   ├── index.css          # Tailwind imports + design tokens
 │   ├── db.js              # IndexedDB session storage (local-only)
+│   ├── api.js             # VITE_API_URL-aware fetch wrapper
+│   ├── analytics.js       # logEvent() — console-only for now
 │   └── components/
 │       ├── ModeSelector.jsx
 │       ├── ScenarioSelector.jsx
@@ -87,7 +92,8 @@ spanish-audio-chat/
 │       ├── VocabularyMatching.jsx
 │       ├── HistoryDashboard.jsx
 │       ├── SessionReview.jsx
-│       └── HoverableText.jsx
+│       ├── HoverableText.jsx
+│       └── EmailCapture.jsx  # Optional post-session signup (needs VITE_FORMSPREE_URL)
 └── public/                # Static assets (if needed)
 ```
 
@@ -216,25 +222,26 @@ Generates 2-3 multiple-choice comprehension questions for a given story, with En
 
 ## Deployment
 
+**Live now:** frontend at https://spanish-audio-chat.netlify.app, backend at https://spanish-audio-chat-production.up.railway.app. Deployed via CLI, **not yet connected to GitHub for auto-deploy-on-push** — a `git push` alone does not update the live app (see PENDING.md SAC-017).
+
 ### Frontend (Netlify)
-1. Connect GitHub repo to Netlify
-2. Build command: `npm run build`
-3. Publish directory: `dist`
-4. Push to `main` → auto-deploys
+```bash
+VITE_API_URL="https://spanish-audio-chat-production.up.railway.app" npm run build
+netlify deploy --prod --dir=dist
+```
+`VITE_API_URL` is also stored as a Netlify env var (`netlify env:set VITE_API_URL ...`) so it's available for a future GitHub-connected build.
 
 ### Backend (Railway)
-1. Connect GitHub repo to Railway
-2. Set environment variable: `ANTHROPIC_API_KEY=sk-ant-...`
-3. Railway auto-detects Node.js and runs `npm run backend` (via Procfile)
-4. Push to `main` → auto-deploys
+```bash
+railway up --detach --service spanish-audio-chat
+```
+Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL`) are set via `railway variables --set KEY=value`. `railway.json` overrides the build/start commands so Railway's Nixpacks builder runs only `npm run backend`, not the frontend's `npm run build` (which it would otherwise auto-detect and run unnecessarily).
 
-**Note:** After deploying, update frontend's API base URL if needed. Currently hardcoded to `/api/*` (works via Vite proxy in dev). For production, either:
-- Use environment variables (VITE_API_URL)
-- Hardcode full Railway URL in ConversationView.jsx
+**API base URL:** `src/api.js` exports `apiFetch()`, which prefixes requests with `import.meta.env.VITE_API_URL` (empty in dev, so requests stay relative and go through the Vite proxy; set to the Railway URL for the production build).
 
 ---
 
-## Features (Phase 1 — MVP)
+## Features (Live in Production)
 
 ✅ Mode selector — Conversation Mode or Listening Mode  
 ✅ Audio conversation with Claude  
@@ -249,8 +256,10 @@ Generates 2-3 multiple-choice comprehension questions for a given story, with En
 ✅ Card-based design system — centralized color/typography/spacing tokens (teal primary, coral secondary), consistent across every screen  
 ✅ Web Speech API (browser native)  
 ✅ Light background UI (per Vinay's preference)  
-✅ Version badge (v1.0j)  
-✅ Error recovery (back button to change API key or restart)
+✅ Version badge (v1.0k)  
+✅ Error recovery (back button to change API key or restart)  
+✅ Deployed to production — Netlify (frontend) + Railway (backend), public GitHub repo with MIT license  
+✅ Basic analytics logging (console-only for now) + optional post-session email capture form (ships inactive — no Formspree endpoint configured yet)
 
 ---
 
@@ -280,7 +289,8 @@ Generates 2-3 multiple-choice comprehension questions for a given story, with En
 
 See PENDING.md for full roadmap. Next up:
 
-- SAC-003–007: GitHub repo + Netlify + Railway production deploy (the original Phase 1 launch milestone, still deferred)
+- SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
+- Set a real `VITE_FORMSPREE_URL` to activate the email capture form
 - Difficulty selector (beginner → intermediate)
 - Scoring system
 - Mobile responsiveness
@@ -302,11 +312,8 @@ The app emphasizes **communication over perfection**. Claude will accept imperfe
 
 ## Development
 
-**Local testing is complete for v1.0j.** Next phase:
-1. GitHub repo setup
-2. Netlify + Railway deployment
-3. Production testing
+**Live in production as of v1.0k**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
 
 ---
 
-**Built by Vinay Vaidya | v1.0j | Last updated: 2026-08-24**
+**Built by Vinay Vaidya | v1.0k | Last updated: 2026-08-25**

@@ -8,9 +8,10 @@
 
 Spanish Audio Chat is a beginner-friendly conversational Spanish practice app with audio voice chat powered by Claude. Users pick a conversation scenario, Claude initiates in Spanish, the user speaks via Web Speech API, Claude responds in Spanish, and provides feedback (corrections + encouragement) in English. The app emphasizes **comprehension + comprehensibility over grammar perfection** — it's designed to help users understand native Spanish speakers and be understood by them, with grammar polish coming later as confidence builds.
 
-**Live URL:** [to be deployed to Netlify]  
-**Backend URL:** [to be deployed to Railway]  
-**Current Version:** v1.0j  
+**Live URL:** https://spanish-audio-chat.netlify.app  
+**Backend URL:** https://spanish-audio-chat-production.up.railway.app  
+**GitHub:** https://github.com/vvaidya98/spanish-audio-chat (public)  
+**Current Version:** v1.0k  
 **Stack:** React 18 + Vite (frontend, Netlify) | Node.js + Express (backend proxy, Railway)
 
 ---
@@ -32,12 +33,16 @@ spanish-audio-chat/
 ├── tailwind.config.js
 ├── postcss.config.js
 ├── Procfile               ← Railway deployment
+├── railway.json           ← Railway build/start override (backend-only, skips frontend build)
+├── LICENSE                ← MIT
 ├── public/                ← static assets (if needed)
 └── src/
     ├── main.jsx           ← React entry
     ├── App.jsx            ← root component
     ├── index.css          ← Tailwind imports
     ├── db.js              ← IndexedDB session storage (local-only, no backend)
+    ├── api.js             ← fetch wrapper, VITE_API_URL-aware (dev proxy vs. prod Railway URL)
+    ├── analytics.js       ← logEvent(), console-only for now
     └── components/
         ├── ModeSelector.jsx
         ├── ScenarioSelector.jsx
@@ -48,7 +53,8 @@ spanish-audio-chat/
         ├── VocabularyMatching.jsx
         ├── HistoryDashboard.jsx
         ├── SessionReview.jsx
-        └── HoverableText.jsx
+        ├── HoverableText.jsx
+        └── EmailCapture.jsx  ← optional post-session signup, no-ops without VITE_FORMSPREE_URL
 ```
 
 **Non-standard note:** `index.html` lives at the root, not in `public/`, to work with Vite's default configuration.
@@ -60,13 +66,15 @@ spanish-audio-chat/
 | Layer | Choice | Notes |
 |---|---|---|
 | Frontend | React 18 + Vite | Dev server on localhost:5173 |
-| Frontend hosting | Netlify | Auto-deploy from GitHub `main` |
+| Frontend hosting | Netlify (live, added v1.0k) | https://spanish-audio-chat.netlify.app — deployed via `netlify deploy --prod`, **not yet GitHub-connected** (manual deploy for now, see SAC-017) |
 | Backend | Node.js + Express | Proxy pattern: all API calls via /api/* |
-| Backend hosting | Railway | Auto-deploy from GitHub `main` |
+| Backend hosting | Railway (live, added v1.0k) | https://spanish-audio-chat-production.up.railway.app — deployed via `railway up`, **not yet GitHub-connected** (manual deploy for now, see SAC-017); `railway.json` overrides the build so Nixpacks doesn't also try to build the frontend |
 | Database | IndexedDB (added v1.0j) | Local-only, per-browser session history (`src/db.js`); no backend involved, no shared/multi-user data |
 | Styling | Tailwind CSS | Light backgrounds per Vinay's preference |
 | AI | Anthropic Claude API — claude-opus-4-8 | Current stable model (Jan 2025). **Always verify model string before assuming bugs are elsewhere.** Stale model strings have caused silent failures in the past. |
-| Version control | GitHub (private) | Push to `main` = auto-deploy both Netlify + Railway |
+| Version control | GitHub (public, added v1.0k) | https://github.com/vvaidya98/spanish-audio-chat — push to `main` does **not** yet auto-deploy (Netlify/Railway are CLI-deployed, not GitHub-linked; see SAC-017) |
+| Analytics | Console logging only (added v1.0k) | `src/analytics.js` `logEvent()` — no external provider set up yet |
+| Email capture | Formspree (added v1.0k, inactive) | `EmailCapture.jsx` posts to `VITE_FORMSPREE_URL`; renders nothing if unset — no form created yet |
 
 ---
 
@@ -78,8 +86,12 @@ Never hardcode. Store in `.env` locally (gitignored) and in hosting platform's e
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 PORT=3000
 NODE_ENV=development
-FRONTEND_URL=https://your-netlify-domain.netlify.app  (production only)
+FRONTEND_URL=https://your-netlify-domain.netlify.app  (production only, set on Railway)
+VITE_API_URL=https://your-railway-domain.up.railway.app  (frontend-only, Netlify build var; unset in dev)
+VITE_FORMSPREE_URL=https://formspree.io/f/your-form-id  (frontend-only, optional — email capture is a no-op without it)
 ```
+
+**Production values (v1.0k):** Railway has `ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL=https://spanish-audio-chat.netlify.app`. Netlify has `VITE_API_URL=https://spanish-audio-chat-production.up.railway.app` (`VITE_FORMSPREE_URL` intentionally not set yet). **Caution for future sessions:** the local `.env` file has leading whitespace before some keys (confirmed on `ANTHROPIC_API_KEY=`) — a naive `grep '^KEY='` extraction will silently match nothing. Strip leading whitespace when scripting against this file.
 
 ---
 
@@ -115,6 +127,11 @@ FRONTEND_URL=https://your-netlify-domain.netlify.app  (production only)
 - **`VocabularyMatching.jsx` gained `onProgressChange` (added v1.0j):** Fired with `(matchedCount, total)` whenever a correct match is made, letting `ListeningStoryView.jsx` track match progress for saving *without* lifting the `matched` Set itself out of the child — the component stays self-contained for its own interaction logic, just reports upward. Session storage keeps a `matchedCount` and the full `matchingWords` list, not which specific words were matched — `SessionReview.jsx`'s Listening view shows "matched N of M" plus the full word list, not per-word matched/unmatched status. A deliberate scope-trim, not an oversight — flagged here in case a future round wants per-word review detail.
 - **`HistoryDashboard.jsx` / `SessionReview.jsx` (added v1.0j, SAC-015):** Dashboard loads all sessions once via `getAllSessions()`, sorts newest-first client-side, and derives stats/filters/pagination (10 per page) from that in-memory array — no re-querying IndexedDB per filter change, since the whole session set is expected to stay small (personal-use app, not a shared multi-tenant system). Mode and scenario filters are independent `useState` values combined in a single `useMemo`. `SessionReview.jsx` branches entirely on `session.mode`: `ConversationReview` owns its own `exchangeIdx` state for Previous/Next navigation (mirrors `SummaryPanel.jsx`'s error-highlight styling); `ListeningReview` is stateless, just renders the three static sections (transcript, MCQ results, vocab summary) directly from the saved session object.
 - **Scenario picker: "Choose One for Me" + 8 scenarios (changed v1.0j, SAC-015):** The old "Different Scenarios" button was dead weight — it called `/api/initiate` with a throwaway prompt and then just reset to the same static `DEFAULT_SCENARIOS` list, never actually using the response. Replaced with a pure client-side pick-and-start: picks a random entry from `DEFAULT_SCENARIOS` and calls `onSelectScenario` directly, skipping the confirm screen entirely (unlike clicking a scenario card, which still goes through the confirm step). List expanded from 4 to 8 (added At the Airport/Hotel, At a Pharmacy/Doctor, Shopping in a Store, Asking for Help/Emergency) — `ScenarioSelector.jsx` no longer needs its own `scenarios` state since the list is no longer mutable at runtime, so `DEFAULT_SCENARIOS` (the named export other components already import) is rendered directly.
+- **Production deploy: CLI-based, not GitHub-connected (added v1.0k, SAC-003–007):** Backend deployed to Railway via `railway up` (uploads the local working tree directly); frontend deployed to Netlify via `netlify deploy --prod --dir=dist` (uploads a pre-built `dist/`). Neither is linked to the GitHub repo for auto-deploy-on-push yet — that's tracked separately as SAC-017 since wiring it up requires the Netlify/Railway GitHub App OAuth flow (browser-interactive, same class of blocker as the CLI logins below), not just CLI commands. Until SAC-017 ships, a code change requires a manual `git push` **and** a manual `netlify deploy`/`railway up` to actually go live — pushing to GitHub alone does nothing.
+- **Railway needs its own build override (`railway.json`, added v1.0k):** Railway's Nixpacks builder auto-detects a `build` script in `package.json` and runs it unconditionally — since this repo's `npm run build` is the *frontend's* Vite build, Railway tried (and failed, missing `terser`) to build the frontend on a service that only needs to run `npm run backend`. Fixed with `railway.json` (`build.buildCommand` set to a no-op echo, `deploy.startCommand` set explicitly to `npm run backend`) rather than removing/renaming the root `build` script, since local `npm run build` still needs to work for Netlify's build step.
+- **`src/api.js`: single `VITE_API_URL`-aware fetch wrapper (added v1.0k, SAC-009):** All 4 `fetch('/api/...')` call sites (2 in `ConversationView.jsx`, 2 in `ListeningStoryView.jsx`) now go through `apiFetch(path, options)`, which prefixes `path` with `import.meta.env.VITE_API_URL` (empty string if unset). In dev this env var stays unset, so requests remain relative and go through the existing Vite proxy to `localhost:3000`; the Netlify production build sets it to the Railway URL at build time. This is a build-time substitution (Vite inlines `import.meta.env.*` at build), not a runtime lookup — changing `VITE_API_URL` on Netlify requires a rebuild+redeploy, not just a restart.
+- **Analytics: console-only `logEvent()`, no provider yet (added v1.0k, SAC-016):** `src/analytics.js` exports one function; call sites (`page_view` in `App.jsx`, `session_started`/`session_completed` in both view components, `history_dashboard_viewed` in `App.jsx`) are already wired so that swapping the function body for a real provider (Plausible was the one discussed) later touches one file, not every call site. Deliberately not using `NODE_ENV`/`import.meta.env.PROD` to suppress dev logging — the console output *is* the product for this round, per the prompt's own "just log to console" recommendation for launch.
+- **Email capture: `EmailCapture.jsx`, ships inactive (added v1.0k, SAC-016):** Renders a small form (email input + Formspree POST) after a completed Conversation (`SummaryPanel.jsx`) or Listening (`ListeningStoryView.jsx`, once `playStatus === 'finished'`) session. Reads its endpoint from `VITE_FORMSPREE_URL` and renders `null` entirely if that's unset — Vinay chose to skip creating a Formspree form this round (it requires his own email to verify), so this ships as dead-but-harmless code rather than a half-built feature blocking the rest of the deploy. Verified via Playwright that the form genuinely doesn't render (0 `input[type=email]` elements) with the var unset, so there's no broken-looking empty box.
 
 ---
 
@@ -143,7 +160,7 @@ Vinay's stated learning goals (prioritized):
 - **Bump on every change**, even minor ones (v1.0b → v1.0c → v1.1a, etc.)
 - Version must be **visibly displayed** in running app (header badge, top right)
 - **Tell the user the new version number after every shipped change.**
-- Current version: **v1.0j**
+- Current version: **v1.0k**
 
 ---
 
@@ -156,11 +173,14 @@ Vinay's stated learning goals (prioritized):
 - [x] User speaks Spanish → Claude responds + feedback
 - [x] Backend proxy (CORS fix)
 - [x] Local testing complete
-- [ ] GitHub repo + deploy to Netlify + Railway
-- [ ] Final documentation (README, CLAUDE.md, PENDING.md)
+- [x] GitHub repo + deploy to Netlify + Railway — shipped v1.0k (CLI-deployed, not GitHub-auto-deploy yet — see SAC-017)
+- [x] Final documentation (README, CLAUDE.md, PENDING.md) — updated for v1.0k
 
 ### Phase 2 — Enhanced (Do Not Build Yet)
 - [x] Session persistence (IndexedDB) — shipped v1.0j
+- [x] Basic analytics logging — shipped v1.0k (console-only, no provider yet)
+- [ ] Email capture live (code shipped v1.0k, inactive — needs a real `VITE_FORMSPREE_URL`)
+- [ ] Auto-deploy on push (Netlify + Railway connected to GitHub) — SAC-017
 - [ ] Difficulty selector (absolute beginner → intermediate)
 - [ ] Vocabulary hints / phrase suggestions
 - [ ] Scoring system (accuracy + fluency)
@@ -239,17 +259,26 @@ npm run backend
 # Runs on http://localhost:3000
 ```
 
-**Production (GitHub → Netlify + Railway):**
-1. Push to GitHub `main`
-2. Netlify auto-builds frontend (`npm run build` → outputs to `dist/`)
-3. Railway auto-deploys backend (`Procfile` runs `npm run backend`)
-4. Update frontend's API base URL if needed (currently hardcoded to /api/*)
+**Production (live as of v1.0k — CLI-deployed, not yet GitHub-auto-deploy, see SAC-017):**
+- Frontend: https://spanish-audio-chat.netlify.app
+- Backend: https://spanish-audio-chat-production.up.railway.app
+- GitHub: https://github.com/vvaidya98/spanish-audio-chat (public)
+
+To ship a change to production, `git push` is not sufficient by itself — also run:
+```bash
+# Backend (from spanish-audio-chat/)
+railway up --detach --service spanish-audio-chat
+# after any env var change: railway redeploy --service spanish-audio-chat --yes (or another `railway up`)
+
+# Frontend
+VITE_API_URL="https://spanish-audio-chat-production.up.railway.app" npm run build
+netlify deploy --prod --dir=dist
+```
+Both CLIs are pre-authenticated in this environment (`railway whoami` / `netlify status`) as of v1.0k — don't re-run the device-code login flow unless a CLI reports unauthenticated.
 
 **CORS for Production:**
-- Frontend will be at https://[netlify-domain]
-- Backend at https://[railway-domain]
-- Vite config proxies /api/* to backend (dev only)
-- For production, update fetch URLs in ConversationView.jsx to use full Railway URL or environment variable
+- Backend's `FRONTEND_URL` env var (Railway) is set to the Netlify URL above; `server.js`'s CORS `origin` list is `[localhost:5173, FRONTEND_URL]`
+- Frontend's `VITE_API_URL` (Netlify build env var) points at the Railway URL — resolved via `src/api.js`'s `apiFetch()`, not hardcoded per-call
 
 ---
 
@@ -268,6 +297,7 @@ npm run backend
 - **2026-08-24 (Prompt for SAC-014-F — missing opening a fourth time, ID collision a second time):** Same pattern again: no header, cut off mid-way through an icon-sizing subsection. Both "Fix #1" (stop button) and "Fix #2" (speed-change skip) testing steps described symptoms with zero implementation guidance — both root causes were diagnosed directly from the v1.0g code (see Key Architecture Decisions: token-guarded speaking engine). And again, this round's own Reporting section called itself "SAC-014-F" — colliding with the *previous* round's rename of the parked story-caching idea to that same ID. Renumbered the caching idea again, to SAC-014-G, same low-stakes reasoning as before. Pattern worth naming explicitly at this point: every SAC-014 sub-round so far has arrived missing its opening section, and the parked "next available ID" keeps getting claimed by the following round before it's ever built — if this keeps happening, consider just leaving the caching idea unnumbered in the parking area until it's actually scheduled, rather than pre-assigning an ID it won't keep.
 - **2026-08-24 (Prompt for SAC-014-H — most compressed yet, no ID this time):** This prompt was *only* its Reporting and Acceptance Criteria sections — no header, no Objective, no Implementation section at all, the most compressed of any round so far. Unlike prior rounds, it never referenced its own SAC ID anywhere, so there was no collision to resolve this time — assigned SAC-014-H as the next available ID (following the already-claimed SAC-014-G). What made building without asking still defensible: the Acceptance Criteria bullets were unusually concrete on their own — an exact 28/18/16/14px type scale, exact 1.5rem spacing, exact 44px tap targets, exact 0.2s transition timing, exact interaction semantics for vocabulary matching (click-to-pair, checkmarks, completion message) — closer to a real spec than most rounds' actual Implementation sections have been. Testing caught a self-inflicted test bug worth remembering for future rounds: an unscoped Playwright locator (`text=/Correct!|Try again/`) picked up the *first* matching element in DOM order, which was the MCQ section's own persistent "Correct! ✓" answer-feedback text (appearing earlier in the page) rather than the intended Vocabulary Matching card's transient banner — the log claimed a successful match that a screenshot then contradicted. Fixed by scoping the locator to the vocabulary card specifically before trusting a "test passed" result again.
 - **2026-08-24 (Prompt for SAC-013 + SAC-015 — largest round yet, real persistence layer):** This prompt introduced actual client-side data storage (IndexedDB) for the first time in the project — the largest scope of any round so far (new storage module, two new full-page components, scenario list expansion, a dead-button fix). Given CLAUDE.md's own Data Integrity Rules section explicitly flagged "return to PERSONAL_STYLE.md rules" for this moment, checked that file before designing anything — see Data Integrity Rules above for what was found (its rules are for shared multi-user databases, don't apply to local-only per-browser storage). Also folded in SAC-013 itself, which had sat undefined in PENDING.md since v1.0c (originally just a one-line placeholder: "Objective: Store all sessions to IndexedDB. User can view history" — no schema, no UI spec) — this prompt's Testing/Acceptance sections were the first time SAC-013 actually got fleshed out, alongside the new SAC-015 (scenario/button/history-dashboard work). Design calls made without an explicit spec to follow: single `sessions` object store (not separate stores per mode) so the unified History Dashboard doesn't need to merge two queries; sessions save on explicit "leave" actions (End Conversation / header Back) rather than continuously, so a closed tab mid-session loses that session — a disclosed gap, not an oversight; vocabulary-match results stored as a count + word list rather than per-word matched/unmatched detail, trading review granularity for a simpler save payload.
+- **2026-08-25 (production deployment round, v1.0k — first round needing external accounts/credentials):** This prompt (GitHub + Netlify + Railway deploy, email capture, analytics, launch checklist) arrived via a `/compact` message with only its back half attached (Email Capture through Post-Launch Tasks — no header, no Objective, no earlier numbered sections), consistent with the pattern of prior rounds. Unlike prior rounds, this one couldn't just be built from the codebase — it required real external accounts. Checked tooling first (`git status`, `gh`, `netlify --version`, `railway --version`): no git repo yet, no `gh` CLI, `netlify` CLI present and already authenticated as Vinay (linked to an unrelated site, `tripbrazil`), no `railway` CLI. Did everything possible locally without asking first (git init, MIT LICENSE, `src/analytics.js`, `EmailCapture.jsx`, version bump, local Playwright test), then used `AskUserQuestion` for the three genuinely external decisions: GitHub repo creation (Vinay created it manually and sent the URL — faster than installing/authenticating `gh`), Railway (installed the CLI, Vinay completed the browser device-code authorization — first attempt's code expired before use since the login command was accidentally wrapped in a sub-shell `&` that got killed when its parent script exited; second attempt with a bare `run_in_background: true` call stayed alive correctly), Formspree (skipped — Vinay chose not to create a form this round, so `EmailCapture.jsx` ships wired but inactive). Two real bugs hit and fixed during deployment (not app bugs, deploy-config bugs): Railway's Nixpacks auto-ran the frontend's `npm run build` and failed on a missing `terser` dependency (fixed with `railway.json` overriding build/start commands, and `terser` added as a devDependency since it's also needed for Netlify's own frontend build) — and a `.env` extraction script (`grep '^ANTHROPIC_API_KEY='`) silently produced an empty value because the file has leading whitespace before that key, which shipped a broken backend (auth error on every Claude API call) until caught by actually calling `/api/initiate` against the live URL rather than just checking `/health`. Lesson generalized into the Environment Variables section above. GitHub's repo-creation defaults added placeholder README/LICENSE/gitignore content despite requesting an empty repo — confirmed it was trivial single-line/template content (not real work) before force-pushing local history over it.
 
 ---
 
