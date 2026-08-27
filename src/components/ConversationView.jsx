@@ -1,15 +1,15 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import SummaryPanel from './SummaryPanel'
 import LoadingSpinner from './LoadingSpinner'
-import NavButton from './NavButton'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
 import { apiFetch } from '../api'
+import { applySpanishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
 
 const MIN_EXCHANGES_BEFORE_END = 5
 const MAX_EXCHANGES = 8
 
-export default function ConversationView({ scenario, onReset, onApiError, onChangeMode, onDifferentScenario }) {
+function ConversationView({ scenario, onReset, onApiError }, ref) {
   const [exchanges, setExchanges] = useState([])
   const [currentState, setCurrentState] = useState('starting') // starting, idle, listening, processing, speaking
   const [transcript, setTranscript] = useState('')
@@ -22,6 +22,7 @@ export default function ConversationView({ scenario, onReset, onApiError, onChan
   const synthRef = useRef(null)
   const transcriptRef = useRef('')
   const sessionStartRef = useRef(Date.now())
+  const speakTokenRef = useRef(0)
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
@@ -102,9 +103,10 @@ export default function ConversationView({ scenario, onReset, onApiError, onChan
     if (!synthRef.current || !text) return
 
     synthRef.current.cancel()
+    const token = ++speakTokenRef.current
 
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'es-ES'
+    applySpanishVoice(utterance)
     utterance.rate = rate
     utterance.pitch = 1
 
@@ -121,7 +123,10 @@ export default function ConversationView({ scenario, onReset, onApiError, onChan
       setCurrentState('idle')
     }
 
-    synthRef.current.speak(utterance)
+    setTimeout(() => {
+      if (token !== speakTokenRef.current) return
+      synthRef.current.speak(utterance)
+    }, SPEAK_START_DELAY_MS)
   }
 
   const startListening = () => {
@@ -174,10 +179,16 @@ export default function ConversationView({ scenario, onReset, onApiError, onChan
   }
 
   const handleBack = () => {
+    speakTokenRef.current++
     if (synthRef.current) synthRef.current.cancel()
     if (recognitionRef.current) recognitionRef.current.abort()
     onReset()
   }
+
+  // Exposes the cleanup-then-navigate action to the parent (App.jsx), which
+  // no longer has a Back button inside this view to trigger it directly —
+  // the global FooterNav's Back/Topics buttons call this via ref instead.
+  useImperativeHandle(ref, () => ({ back: handleBack }))
 
   const handleRepeat = (rate) => {
     if (currentState !== 'idle' || !claudeMessage) return
@@ -221,12 +232,6 @@ export default function ConversationView({ scenario, onReset, onApiError, onChan
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-border">
-        <NavButton icon="←" label="Back" onClick={handleBack} title="Back to scenarios" />
-        <NavButton icon="📋" label="Change Mode" onClick={onChangeMode} title="Change Mode" />
-        <NavButton icon="🔄" label="Diff Scenario" onClick={onDifferentScenario} title="Different Scenario" />
-      </div>
-
       <div className="mb-6 border-l-4 border-primary bg-primary-light rounded-r-card px-4 py-2.5">
         <p className="text-ink font-bold text-heading-2 leading-tight">{scenario}</p>
         <p className="text-primary-text text-small">Exchange {displayExchangeNumber} of {MAX_EXCHANGES}</p>
@@ -307,21 +312,21 @@ export default function ConversationView({ scenario, onReset, onApiError, onChan
               disabled={isBusy}
               className="min-h-[44px] rounded-control text-small font-semibold bg-primary-light text-primary-text hover:bg-primary-light/70 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              Repeat 1x
+              Repeat x1.0
             </button>
             <button
               onClick={() => handleRepeat(0.8)}
               disabled={isBusy}
               className="min-h-[44px] rounded-control text-small font-semibold bg-primary-light text-primary-text hover:bg-primary-light/70 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              Repeat 0.8x
+              Repeat x0.8
             </button>
             <button
-              onClick={() => handleRepeat(0.6)}
+              onClick={() => handleRepeat(0.5)}
               disabled={isBusy}
               className="min-h-[44px] rounded-control text-small font-semibold bg-primary-light text-primary-text hover:bg-primary-light/70 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              Repeat 0.6x
+              Repeat x0.5
             </button>
           </div>
           <button
@@ -346,3 +351,5 @@ export default function ConversationView({ scenario, onReset, onApiError, onChan
     </div>
   )
 }
+
+export default forwardRef(ConversationView)

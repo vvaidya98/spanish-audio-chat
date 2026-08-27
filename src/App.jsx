@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import ModeSelector from './components/ModeSelector'
-import ScenarioSelector, { DEFAULT_SCENARIOS } from './components/ScenarioSelector'
+import ScenarioSelector from './components/ScenarioSelector'
 import ConversationView from './components/ConversationView'
 import ListeningStoryView from './components/ListeningStoryView'
 import HistoryDashboard from './components/HistoryDashboard'
 import SessionReview from './components/SessionReview'
+import FooterNav from './components/FooterNav'
 import { logEvent } from './analytics'
 
 function App() {
@@ -13,6 +14,10 @@ function App() {
   const [apiError, setApiError] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const [selectedSession, setSelectedSession] = useState(null)
+  // Points at whichever of ConversationView/ListeningStoryView is currently
+  // mounted (only one ever is) — lets FooterNav trigger that view's own
+  // save-then-navigate action even though its in-view Back button is gone.
+  const activeViewRef = useRef(null)
 
   useEffect(() => {
     logEvent('page_view')
@@ -45,11 +50,32 @@ function App() {
     setScenario('')
   }
 
-  const handleDifferentScenario = () => {
-    const others = DEFAULT_SCENARIOS.filter((s) => s.title !== scenario)
-    if (others.length === 0) return
-    const pick = others[Math.floor(Math.random() * others.length)]
-    setScenario(pick.title)
+  const handleFooterBack = () => {
+    if (showHistory) {
+      if (selectedSession) { setSelectedSession(null); return }
+      setShowHistory(false)
+      return
+    }
+    if (activeViewRef.current?.back) { activeViewRef.current.back(); return }
+    if (mode) { handleBackToModes(); return }
+  }
+
+  const handleFooterMode = () => {
+    if (showHistory) { setShowHistory(false); setSelectedSession(null) }
+    if (activeViewRef.current?.back) activeViewRef.current.back()
+    handleBackToModes()
+  }
+
+  const handleFooterTopics = () => {
+    if (showHistory) { setShowHistory(false); setSelectedSession(null) }
+    if (activeViewRef.current?.back) { activeViewRef.current.back(); return }
+    if (mode) handleReset()
+  }
+
+  const handleFooterHistory = () => {
+    if (activeViewRef.current?.back) activeViewRef.current.back()
+    logEvent('history_dashboard_viewed')
+    setShowHistory(true)
   }
 
   const renderContent = () => {
@@ -88,9 +114,9 @@ function App() {
       return (
         <ListeningStoryView
           key={scenario}
+          ref={activeViewRef}
           scenario={scenario}
           onBack={handleReset}
-          onChangeMode={handleBackToModes}
         />
       )
     }
@@ -98,17 +124,16 @@ function App() {
     return (
       <ConversationView
         key={scenario}
+        ref={activeViewRef}
         scenario={scenario}
         onReset={handleReset}
         onApiError={handleApiError}
-        onChangeMode={handleBackToModes}
-        onDifferentScenario={handleDifferentScenario}
       />
     )
   }
 
   return (
-    <div className="min-h-screen p-4" style={{ background: 'linear-gradient(to bottom right, var(--color-bg-start), var(--color-bg-end))' }}>
+    <div className="min-h-screen p-4 pb-20" style={{ background: 'linear-gradient(to bottom right, var(--color-bg-start), var(--color-bg-end))' }}>
       <div className="max-w-2xl mx-auto">
         <div className="bg-surface rounded-card shadow-lg p-8">
           <div className="flex justify-between items-center mb-6">
@@ -125,13 +150,20 @@ function App() {
                   📊 History
                 </button>
               )}
-              <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0m</span>
+              <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0q</span>
             </div>
           </div>
 
           {renderContent()}
         </div>
       </div>
+
+      <FooterNav
+        onBack={handleFooterBack}
+        onMode={handleFooterMode}
+        onTopics={handleFooterTopics}
+        onHistory={handleFooterHistory}
+      />
     </div>
   )
 }

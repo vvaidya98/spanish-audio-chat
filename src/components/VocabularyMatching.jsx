@@ -1,7 +1,10 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { applySpanishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
 
-const ADVANCE_DELAY_MS = 600
 const RETRY_MESSAGE_MS = 1200
+// Small delay after a new word appears before its audio auto-plays, so the
+// DOM has settled first.
+const WORD_AUTOPLAY_DELAY_MS = 200
 const DIFFICULTY_RANK = { easy: 0, medium: 1, hard: 2 }
 
 const DIFFICULTY_STYLES = {
@@ -52,7 +55,7 @@ function buildOptions(words, wordIdx) {
   return shuffle([correct, ...distractors])
 }
 
-export default function VocabularyMatching({ words, onProgressChange }) {
+export default function VocabularyMatching({ words, onProgressChange, rate = 0.8 }) {
   const sortedWords = useMemo(
     () => [...words].sort((a, b) => (DIFFICULTY_RANK[a.difficulty] ?? 1) - (DIFFICULTY_RANK[b.difficulty] ?? 1)),
     [words]
@@ -60,16 +63,14 @@ export default function VocabularyMatching({ words, onProgressChange }) {
 
   const [currentIdx, setCurrentIdx] = useState(0)
   const [feedback, setFeedback] = useState(null) // { correct: boolean } | null
-  const [showExample, setShowExample] = useState(false)
-  const [locked, setLocked] = useState(false) // true while auto-advance/example is pending
+  const [locked, setLocked] = useState(false) // true once correct, until "Next" is clicked
 
   const options = useMemo(() => buildOptions(sortedWords, currentIdx), [sortedWords, currentIdx])
-  const advanceTimeoutRef = useRef(null)
   const retryTimeoutRef = useRef(null)
+  const speakTokenRef = useRef(0)
 
   useEffect(() => {
     return () => {
-      if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current)
       if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
     }
   }, [])
@@ -81,33 +82,60 @@ export default function VocabularyMatching({ words, onProgressChange }) {
 
   const isComplete = currentIdx >= sortedWords.length
   const currentWord = !isComplete ? sortedWords[currentIdx] : null
-  const hasExample = currentWord && (currentWord.examplePhrase || currentWord.exampleSentence)
+
+  const playWord = (text) => {
+    try {
+      window.speechSynthesis.cancel()
+      const token = ++speakTokenRef.current
+      const utterance = new SpeechSynthesisUtterance(text)
+      applySpanishVoice(utterance)
+      utterance.rate = rate
+      setTimeout(() => {
+        if (token !== speakTokenRef.current) return
+        window.speechSynthesis.speak(utterance)
+      }, SPEAK_START_DELAY_MS)
+    } catch (err) {
+      console.error('Could not play word audio:', err)
+    }
+  }
+
+  // Auto-play the word's audio as soon as it appears (not after the user
+  // gets it right) — the user should hear it before they have to match it,
+  // not as a reward afterward. Keyed on currentIdx only (not on feedback
+  // state), so a wrong guess doesn't re-trigger a replay.
+  useEffect(() => {
+    if (isComplete || !currentWord) return
+    const timer = setTimeout(() => playWord(currentWord.word), WORD_AUTOPLAY_DELAY_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIdx])
 
   const selectOption = (option) => {
     if (locked) return
     const isCorrect = option.english === currentWord.english
 
+    // A prior wrong guess may have scheduled a delayed setFeedback(null) to
+    // auto-clear its "Try again!" message. If this new attempt is correct,
+    // that stale timer must not be left pending — otherwise it fires later
+    // and wipes out the persistent "✓ Correct!" state (and the Next button
+    // with it), well after the user already succeeded.
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
+
     if (isCorrect) {
       setLocked(true)
       playCorrectBeep()
       setFeedback({ correct: true })
-
-      if (hasExample) {
-        setShowExample(true)
-      }
-
-      advanceTimeoutRef.current = setTimeout(() => {
-        setFeedback(null)
-        setShowExample(false)
-        setLocked(false)
-        setCurrentIdx((i) => i + 1)
-      }, ADVANCE_DELAY_MS + (hasExample ? ADVANCE_DELAY_MS : 0))
     } else {
       playWrongBeep()
       setFeedback({ correct: false })
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
       retryTimeoutRef.current = setTimeout(() => setFeedback(null), RETRY_MESSAGE_MS)
     }
+  }
+
+  const handleNext = () => {
+    setFeedback(null)
+    setLocked(false)
+    setCurrentIdx((i) => i + 1)
   }
 
   return (
@@ -122,48 +150,60 @@ export default function VocabularyMatching({ words, onProgressChange }) {
       ) : (
         <>
           <div className="text-center mb-5">
-            {currentWord.difficulty && (
-              <span className={`inline-block text-xs px-2 py-0.5 rounded mb-2 ${DIFFICULTY_STYLES[currentWord.difficulty] || ''}`}>
-                {currentWord.difficulty}
-              </span>
-            )}
-            <p className="text-heading-1 text-ink font-bold">{currentWord.word}</p>
+            <div className="flex items-center justify-center gap-2">
+              <p className="text-[1.25rem] leading-tight text-ink font-bold">{currentWord.word}</p>
+              {currentWord.difficulty && (
+                <span className={`inline-block text-xs px-2 py-0.5 rounded ${DIFFICULTY_STYLES[currentWord.difficulty] || ''}`}>
+                  {currentWord.difficulty}
+                </span>
+              )}
+              <button
+                onClick={() => playWord(currentWord.word)}
+                title="Play this word"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center text-xl rounded-control text-primary hover:bg-primary-light transition"
+              >
+                🔊
+              </button>
+            </div>
           </div>
 
-          {feedback && !showExample && (
-            <div
-              className={`mb-4 rounded-control px-4 py-2 text-body font-semibold text-center transition ${
-                feedback.correct ? 'bg-success-light text-success' : 'bg-danger-light text-danger'
-              }`}
-            >
-              {feedback.correct ? '✓ Correct!' : 'Try again!'}
-            </div>
-          )}
-
-          {showExample && (
-            <div className="mb-4 bg-primary-light rounded-control px-4 py-3 text-small space-y-2">
+          {feedback?.correct && (
+            <div className="mb-4 bg-success-light rounded-control px-4 py-3 text-small space-y-2">
+              <p className="text-success font-semibold text-body">✓ Correct!</p>
               {currentWord.examplePhrase && (
                 <div>
-                  <p className="text-primary-text font-semibold">Example: {currentWord.examplePhrase}</p>
+                  <p className="text-ink font-semibold">Example: {currentWord.examplePhrase}</p>
                   <p className="text-ink-muted italic">{currentWord.examplePhraseEnglish}</p>
                 </div>
               )}
               {currentWord.exampleSentence && (
                 <div>
-                  <p className="text-primary-text font-semibold">{currentWord.exampleSentence}</p>
+                  <p className="text-ink font-semibold">{currentWord.exampleSentence}</p>
                   <p className="text-ink-muted italic">{currentWord.exampleSentenceEnglish}</p>
                 </div>
               )}
+              <button
+                onClick={handleNext}
+                className="w-full min-h-[44px] mt-2 rounded-control bg-primary text-white font-semibold hover:bg-primary-hover transition"
+              >
+                Next →
+              </button>
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
+          {feedback && !feedback.correct && (
+            <div className="mb-4 rounded-control px-4 py-2 text-body font-semibold text-center bg-danger-light text-danger transition">
+              Try again!
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2 mb-5">
             {options.map((opt, idx) => (
               <button
                 key={`${currentIdx}-${idx}`}
                 onClick={() => selectOption(opt)}
                 disabled={locked}
-                className="min-h-[48px] px-4 py-2 rounded-control border border-border bg-surface hover:border-primary text-ink text-body transition disabled:opacity-60 disabled:cursor-not-allowed"
+                className="px-3 py-1 rounded-full border border-[#81c784] bg-[#e8f5e9] text-[#2e7d32] text-xs hover:bg-[#c8e6c9] transition disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {opt.english}
               </button>

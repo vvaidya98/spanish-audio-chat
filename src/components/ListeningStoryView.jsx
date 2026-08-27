@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import HoverableText from './HoverableText'
 import ListeningHeader from './ListeningHeader'
 import VocabularyMatching from './VocabularyMatching'
@@ -7,10 +7,11 @@ import LoadingSpinner from './LoadingSpinner'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
 import { apiFetch } from '../api'
+import { applySpanishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
 
 const SENTENCE_GAP_MS = 1300
 
-export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
+function ListeningStoryView({ scenario, onBack }, ref) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [story, setStory] = useState(null)
@@ -19,10 +20,10 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
   const [matchingWords, setMatchingWords] = useState([])
   const [playStatus, setPlayStatus] = useState('idle') // idle, playing, gap, paused, finished
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [rate, setRate] = useState(0.5)
+  const [rate, setRate] = useState(0.8)
   const [userAnswers, setUserAnswers] = useState({})
   const [showTranscript, setShowTranscript] = useState(false)
-  const [showMCQ, setShowMCQ] = useState(false)
+  const [showComprehension, setShowComprehension] = useState(false)
   const [transcriptPlayingIdx, setTranscriptPlayingIdx] = useState(null)
   const [openTranslationIdx, setOpenTranslationIdx] = useState(null)
   const [vocabMatchedCount, setVocabMatchedCount] = useState(0)
@@ -30,7 +31,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
 
   const synthRef = useRef(null)
   const indexRef = useRef(0)
-  const rateRef = useRef(0.5)
+  const rateRef = useRef(0.8)
   const pausedRef = useRef(false)
   const pauseContextRef = useRef(null) // 'mid-sentence' | 'gap'
   const gapTimeoutRef = useRef(null)
@@ -49,6 +50,12 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
   // against the ref before doing anything, so a stale utterance's late event
   // is a no-op once something newer has superseded it.
   const utteranceTokenRef = useRef(0)
+  // Set by Replay/Prev/Next/End (single-sentence manual navigation): tells
+  // handleSentenceUtteranceEnd to stop after this one sentence instead of
+  // gap-then-auto-advancing. Cleared only when the global Play/Pause button
+  // resumes playback from a stopped state, which is what re-enables normal
+  // sequential auto-advance.
+  const manualNavRef = useRef(false)
 
   useEffect(() => {
     synthRef.current = window.speechSynthesis
@@ -106,6 +113,10 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
       logEvent('session_started', { mode: 'listening', scenario })
       setTimeout(() => {
         if (isStale()) return
+        // A fast click (Replay/Prev/Next/End) within this 300ms window
+        // already started manual navigation — don't let this delayed
+        // autoplay kickoff clobber it back to sentence 0.
+        if (manualNavRef.current) return
         setAutoplayFailed(false)
         speakSentenceAt(0)
         // Autoplay policies (notably mobile Safari) can silently reject a
@@ -116,6 +127,14 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
         // directly instead of leaving playback silently stuck.
         setTimeout(() => {
           if (isStale()) return
+          // If the user has already manually navigated (Replay/Prev/Next/End)
+          // by the time this stale check fires, they've proven the audio
+          // system works and may have already reached a legitimate 'finished'
+          // state well within this window — the original "did autoplay even
+          // start" question is moot at that point, and forcing playStatus
+          // back to 'idle' here would incorrectly yank away the finished-only
+          // UI (Comprehension/Vocab toggles) that's already correctly showing.
+          if (manualNavRef.current) return
           // gapTimeoutRef being set means a real onend already fired and the
           // engine is legitimately resting between sentences — not a stall.
           // Only flag failure if speech never started at all.
@@ -137,6 +156,14 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
   // then move on to the next sentence.
   const handleSentenceUtteranceEnd = (idx) => {
     if (pausedRef.current) return
+    if (manualNavRef.current) {
+      // Single-sentence manual navigation: stop here, no auto-advance gap.
+      // If this genuinely was the last sentence, surface 'finished' anyway
+      // (nothing left to play, and the comprehension check should still
+      // become reachable) rather than leaving it stuck on 'idle' forever.
+      setPlayStatus(idx >= sentencesRef.current.length - 1 ? 'finished' : 'idle')
+      return
+    }
     setPlayStatus('gap')
     gapTimeoutRef.current = setTimeout(() => {
       if (!pausedRef.current) speakSentenceAt(idx + 1)
@@ -158,7 +185,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
 
     const token = ++utteranceTokenRef.current
     const utterance = new SpeechSynthesisUtterance(sentences[idx].spanish)
-    utterance.lang = 'es-ES'
+    applySpanishVoice(utterance)
     utterance.rate = rateRef.current
     utterance.pitch = 1
     utterance.onboundary = (e) => {
@@ -175,7 +202,10 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
     }
 
     synthRef.current.cancel()
-    synthRef.current.speak(utterance)
+    setTimeout(() => {
+      if (token !== utteranceTokenRef.current) return
+      synthRef.current.speak(utterance)
+    }, SPEAK_START_DELAY_MS)
   }
 
   // Shared by mid-play speed changes and resuming from a pause: speaks only
@@ -199,7 +229,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
 
     const idx = indexRef.current
     const utterance = new SpeechSynthesisUtterance(remainingText)
-    utterance.lang = 'es-ES'
+    applySpanishVoice(utterance)
     utterance.rate = rateOverride ?? rateRef.current
     utterance.pitch = 1
     utterance.onboundary = (e) => {
@@ -215,7 +245,10 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
       handleSentenceUtteranceEnd(idx)
     }
 
-    synthRef.current.speak(utterance)
+    setTimeout(() => {
+      if (token !== utteranceTokenRef.current) return
+      synthRef.current.speak(utterance)
+    }, SPEAK_START_DELAY_MS)
   }
 
   const handleRegenerateStory = () => {
@@ -228,7 +261,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
     setPlayStatus('idle')
     setCurrentIndex(0)
     setUserAnswers({})
-    setShowMCQ(false)
+    setShowComprehension(false)
     setShowTranscript(false)
     setVocabMatchedCount(0)
     setAutoplayFailed(false)
@@ -244,7 +277,8 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
   const handlePlayPause = () => {
     if (playStatus === 'idle') {
       setAutoplayFailed(false)
-      speakSentenceAt(0)
+      manualNavRef.current = false
+      speakSentenceAt(indexRef.current)
     } else if (playStatus === 'playing') {
       // cancel() (not the native pause()) so playback stops immediately and
       // reliably — speechSynthesis.pause() is known to sometimes let the
@@ -270,33 +304,25 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
     }
   }
 
-  const handleRestart = () => {
-    if (gapTimeoutRef.current) clearTimeout(gapTimeoutRef.current)
-    pausedRef.current = false
-    pauseContextRef.current = null
-    utteranceTokenRef.current++
-    synthRef.current.cancel()
-    speakSentenceAt(0)
-  }
-
-  const handleJumpToEnd = () => {
-    if (gapTimeoutRef.current) clearTimeout(gapTimeoutRef.current)
-    pausedRef.current = false
-    pauseContextRef.current = null
-    utteranceTokenRef.current++
-    synthRef.current.cancel()
-    speakSentenceAt(sentencesRef.current.length - 1)
-  }
-
-  const handleJumpToSentence = (idx) => {
+  // Shared setup for all single-sentence manual navigation actions
+  // (Replay/Prev/Next/End): stop whatever's playing, mark manual-nav mode
+  // so handleSentenceUtteranceEnd won't auto-advance, then speak just the
+  // target sentence.
+  const manualNavigateTo = (idx) => {
     if (gapTimeoutRef.current) clearTimeout(gapTimeoutRef.current)
     pausedRef.current = false
     pauseContextRef.current = null
     utteranceTokenRef.current++
     synthRef.current.cancel()
     setAutoplayFailed(false)
+    manualNavRef.current = true
     speakSentenceAt(idx)
   }
+
+  const handleReplay = () => manualNavigateTo(indexRef.current)
+  const handlePreviousSentence = () => manualNavigateTo(Math.max(0, indexRef.current - 1))
+  const handleNextSentence = () => manualNavigateTo(Math.min(sentencesRef.current.length - 1, indexRef.current + 1))
+  const handleJumpToEnd = () => manualNavigateTo(sentencesRef.current.length - 1)
 
   const handleSpeedChange = (newRate) => {
     rateRef.current = newRate
@@ -324,7 +350,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
 
     setTranscriptPlayingIdx(idx)
     const utterance = new SpeechSynthesisUtterance(sentencesRef.current[idx].spanish)
-    utterance.lang = 'es-ES'
+    applySpanishVoice(utterance)
     utterance.rate = rateRef.current
     utterance.pitch = 1
     utterance.onend = () => {
@@ -335,7 +361,10 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
       if (token !== utteranceTokenRef.current) return
       setTranscriptPlayingIdx((prev) => (prev === idx ? null : prev))
     }
-    synthRef.current.speak(utterance)
+    setTimeout(() => {
+      if (token !== utteranceTokenRef.current) return
+      synthRef.current.speak(utterance)
+    }, SPEAK_START_DELAY_MS)
   }
 
   const toggleTranslation = (idx) => {
@@ -391,27 +420,26 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
     onBack()
   }
 
+  // Exposes the save-then-navigate action to the parent (App.jsx), which no
+  // longer has a Back button inside this view to trigger it directly — the
+  // global FooterNav's Back/Topics buttons call this via ref instead.
+  useImperativeHandle(ref, () => ({ back: handleBackWithSave }))
+
   if (loading) {
+    const previewWords = (story?.vocabulary || [])
+      .map((v) => v.word)
+      .filter((w) => w.length > 2)
+      .slice(0, 12)
     return (
       <div>
-        <ListeningHeader onBack={handleBackWithSave} onChangeMode={onChangeMode} />
-        <LoadingSpinner label="Generating your story..." />
+        <LoadingSpinner label="Generating your story..." previewWords={previewWords} />
       </div>
     )
   }
 
   return (
     <div>
-      <ListeningHeader
-        onBack={handleBackWithSave}
-        onChangeMode={onChangeMode}
-        onRegenerate={story ? handleRegenerateStory : undefined}
-      />
-
-      <div className="mb-6 border-l-4 border-primary bg-primary-light rounded-r-card px-4 py-2.5">
-        <p className="text-ink font-bold text-heading-2 leading-tight">{scenario}</p>
-        <p className="text-primary-text text-small">Listen carefully</p>
-      </div>
+      <ListeningHeader onRegenerate={story ? handleRegenerateStory : undefined} />
 
       {error && (
         <div className="mb-6 p-4 bg-danger-light border-l-4 border-danger rounded-control">
@@ -432,12 +460,21 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
           )}
 
           <div className="mb-6 bg-surface rounded-card shadow-sm border border-border p-6">
+            <p className="text-small text-ink-muted mb-3">{scenario} — Listen carefully</p>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <div className="flex items-center justify-center gap-2 sm:justify-start sm:gap-1">
                 <button
-                  onClick={handleRestart}
-                  title="Restart"
-                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
+                  onClick={handleReplay}
+                  title="Replay this sentence"
+                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-2xl sm:text-xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
+                >
+                  🔄
+                </button>
+                <button
+                  onClick={handlePreviousSentence}
+                  disabled={currentIndex === 0}
+                  title="Previous sentence"
+                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   ⏮
                 </button>
@@ -452,11 +489,19 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
                   {isMainPlaying ? '⏸' : '▶'}
                 </button>
                 <button
-                  onClick={handleJumpToEnd}
-                  title="Skip to end"
-                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
+                  onClick={handleNextSentence}
+                  disabled={currentIndex >= totalSentences - 1}
+                  title="Next sentence"
+                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   ⏭
+                </button>
+                <button
+                  onClick={handleJumpToEnd}
+                  title="Jump to last sentence"
+                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-2xl sm:text-xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
+                >
+                  ⏩
                 </button>
               </div>
 
@@ -469,14 +514,14 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
 
               <div className="flex gap-2 justify-center sm:justify-start sm:gap-1">
                 {[
-                  { r: 0.6, label: 'Slow' },
-                  { r: 0.5, label: 'Normal' },
-                  { r: 0.4, label: 'Fast' },
+                  { r: 1.0, label: 'x1.0' },
+                  { r: 0.8, label: 'x0.8' },
+                  { r: 0.5, label: 'x0.5' },
                 ].map(({ r, label }) => (
                   <button
                     key={r}
                     onClick={() => handleSpeedChange(r)}
-                    title={`${label} (${r}x)`}
+                    title={label}
                     className={`min-w-[44px] min-h-[44px] px-3 sm:px-2 rounded-control text-small font-semibold transition ${
                       rate === r ? 'bg-primary text-white' : 'bg-primary-light text-primary-text hover:bg-primary/20'
                     }`}
@@ -486,38 +531,18 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
                 ))}
               </div>
             </div>
-
-            <div className="flex flex-wrap gap-1.5 justify-center mt-4">
-              {sentencesRef.current.map((_, idx) => {
-                const isCurrent = idx === currentIndex
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => handleJumpToSentence(idx)}
-                    title={`Jump to sentence ${idx + 1}`}
-                    className={`w-8 h-8 rounded-control text-xs font-semibold transition flex items-center justify-center ${
-                      isCurrent
-                        ? 'bg-primary text-white'
-                        : 'bg-primary-light text-primary-text hover:bg-primary/20'
-                    }`}
-                  >
-                    {idx + 1}
-                  </button>
-                )
-              })}
-            </div>
           </div>
 
           {playStatus === 'finished' && (
             <div className="flex flex-col sm:flex-row gap-2 mb-6">
-              {questions.length > 0 && (
+              {(questions.length > 0 || matchingWords.length > 0) && (
                 <button
-                  onClick={() => setShowMCQ((prev) => !prev)}
+                  onClick={() => setShowComprehension((prev) => !prev)}
                   className={`flex-1 min-h-[44px] px-4 rounded-control text-body font-semibold transition ${
-                    showMCQ ? 'bg-primary text-white' : 'bg-primary-light text-primary-text hover:bg-primary-light/70'
+                    showComprehension ? 'bg-primary text-white' : 'bg-primary-light text-primary-text hover:bg-primary-light/70'
                   }`}
                 >
-                  📋 {showMCQ ? 'Hide Comprehension' : 'Check Comprehension'}
+                  ✓ {showComprehension ? 'Hide Comprehension' : 'Check Comprehension'}
                 </button>
               )}
               <button
@@ -531,7 +556,7 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
             </div>
           )}
 
-          {playStatus === 'finished' && showMCQ && questions.length > 0 && (
+          {playStatus === 'finished' && showComprehension && questions.length > 0 && (
             <div className="mb-6">
               <p className="text-heading-2 text-ink mb-3">Comprehension Check</p>
               <div className="space-y-4">
@@ -579,8 +604,8 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
             </div>
           )}
 
-          {playStatus === 'finished' && matchingWords.length > 0 && (
-            <VocabularyMatching words={matchingWords} onProgressChange={(count) => setVocabMatchedCount(count)} />
+          {playStatus === 'finished' && showComprehension && matchingWords.length > 0 && (
+            <VocabularyMatching words={matchingWords} onProgressChange={(count) => setVocabMatchedCount(count)} rate={rate} />
           )}
 
           {playStatus === 'finished' && <EmailCapture />}
@@ -630,3 +655,5 @@ export default function ListeningStoryView({ scenario, onBack, onChangeMode }) {
     </div>
   )
 }
+
+export default forwardRef(ListeningStoryView)
