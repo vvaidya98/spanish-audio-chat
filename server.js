@@ -344,7 +344,7 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.0t' });
+  res.json({ status: 'ok', version: '1.0u' });
 });
 
 app.listen(PORT, () => {

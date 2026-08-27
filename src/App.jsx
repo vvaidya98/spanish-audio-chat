@@ -144,7 +144,7 @@ function App() {
         <div className="bg-surface rounded-card shadow-lg p-8">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-heading-1 text-ink">Conversation Amigo</h1>
-            <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0t</span>
+            <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0u</span>
           </div>
 
           {renderContent()}

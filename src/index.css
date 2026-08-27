@@ -37,6 +37,25 @@
   box-sizing: border-box;
 }
 
+/* Play button pulse (Phase 2.9, SAC-048) — draws attention to the Play
+   button on a story's first load, since removing "Tap to Begin" (v1.0t)
+   means nothing else prompts a first-time user to click it. */
+@keyframes playButtonPulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.5);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.play-button-pulse {
+  animation: playButtonPulse 1.2s ease-in-out infinite;
+}
+
 /* LoadingSpinner's cycling word animations (Phase 2.7) — one keyframe per
    style, applied via a per-word `loading-word-<style>` class so consecutive
    words don't all use the same effect. */

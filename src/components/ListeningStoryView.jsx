@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import HoverableText from './HoverableText'
-import ListeningHeader from './ListeningHeader'
 import VocabularyMatching from './VocabularyMatching'
 import EmailCapture from './EmailCapture'
 import LoadingSpinner from './LoadingSpinner'
@@ -27,11 +26,18 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   const [transcriptPlayingIdx, setTranscriptPlayingIdx] = useState(null)
   const [openTranslationIdx, setOpenTranslationIdx] = useState(null)
   const [vocabMatchedCount, setVocabMatchedCount] = useState(0)
-  // SAC-045: optional "Display transcription" checkbox + box showing just
-  // the current sentence (separate from the full-story "Display Transcript"
-  // toggle further down, which shows every sentence at once).
-  const [showTranscription, setShowTranscription] = useState(false)
-  const [showTranscriptionEnglish, setShowTranscriptionEnglish] = useState(false)
+  // SAC-047: two independent "Display Spanish"/"Display English" checkboxes
+  // showing just the current sentence (separate from the full-story
+  // "Display Transcript" toggle further down, which shows every sentence at
+  // once). These are persistent preferences, not per-sentence reveal state —
+  // unlike v1.0t's single checkbox + 🌐 toggle, they don't reset as the
+  // sentence changes, only the content inside the box updates.
+  const [showSpanish, setShowSpanish] = useState(false)
+  const [showEnglish, setShowEnglish] = useState(false)
+  // SAC-048: pulses the Play button until the user's first real interaction
+  // with it, since removing "Tap to Begin" (v1.0t) means there's no longer
+  // an unmissable prompt telling a first-time user where to start.
+  const [isFirstLoad, setIsFirstLoad] = useState(true)
 
   const synthRef = useRef(null)
   const indexRef = useRef(0)
@@ -73,13 +79,6 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // A new current sentence means any revealed English translation in the
-  // transcription box belongs to the sentence that just ended — hide it so
-  // the user has to deliberately reveal English for the new one too.
-  useEffect(() => {
-    setShowTranscriptionEnglish(false)
-  }, [currentIndex])
 
   // isStale() guards against React StrictMode's dev-mode double-invoke of this
   // effect (mount -> cleanup -> mount): without it, two independent loadStory()
@@ -242,13 +241,18 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     setShowComprehension(false)
     setShowTranscript(false)
     setVocabMatchedCount(0)
-    setShowTranscription(false)
+    setShowSpanish(false)
+    setShowEnglish(false)
+    // No pulse after a regenerate — by this point the user has already
+    // found and used the controls at least once (they clicked Regenerate).
+    setIsFirstLoad(false)
 
     loadStory(() => false, true)
   }
 
   const handlePlayPause = () => {
     if (playStatus === 'idle') {
+      setIsFirstLoad(false)
       manualNavRef.current = false
       speakSentenceAt(indexRef.current)
     } else if (playStatus === 'playing') {
@@ -292,8 +296,12 @@ function ListeningStoryView({ scenario, onBack }, ref) {
 
   // "First sentence" jumps straight to sentence 0, mirroring "Last sentence"
   // jumping straight to the end — both boundary jumps, not step-by-one moves
-  // (Prompt #021 follow-up correction).
+  // (Prompt #021 follow-up correction). "Previous sentence" is the
+  // step-back-one counterpart to "Next sentence", restored alongside First
+  // once it became clear First's jump-to-start didn't replace the need for
+  // a plain one-at-a-time step back too.
   const handleJumpToStart = () => manualNavigateTo(0)
+  const handlePreviousSentence = () => manualNavigateTo(Math.max(0, indexRef.current - 1))
   const handleNextSentence = () => manualNavigateTo(Math.min(sentencesRef.current.length - 1, indexRef.current + 1))
   const handleJumpToEnd = () => manualNavigateTo(sentencesRef.current.length - 1)
 
@@ -414,8 +422,6 @@ function ListeningStoryView({ scenario, onBack }, ref) {
 
   return (
     <div className={story ? 'pb-52' : ''}>
-      <ListeningHeader onRegenerate={story ? handleRegenerateStory : undefined} />
-
       {error && (
         <div className="mb-6 p-4 bg-danger-light border-l-4 border-danger rounded-control">
           <p className="text-danger font-semibold mb-1">⚠️ Error</p>
@@ -428,30 +434,29 @@ function ListeningStoryView({ scenario, onBack }, ref) {
           <p className="text-small text-ink-muted mb-3">{scenario} — Listen carefully</p>
 
           <div className="mb-4">
-            <label className="flex items-center gap-2 text-small text-ink-muted cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showTranscription}
-                onChange={(e) => setShowTranscription(e.target.checked)}
-              />
-              Display transcription
-            </label>
-            {showTranscription && currentSentence && (
-              <div className="mt-2 bg-[#f9f9f9] border border-border rounded-control p-3 relative">
-                <button
-                  onClick={() => setShowTranscriptionEnglish((prev) => !prev)}
-                  title="Show English"
-                  className="absolute top-2 right-2 text-lg text-ink-faint hover:text-ink-muted transition"
-                >
-                  🌐
-                </button>
-                <p className="text-body font-bold text-ink pr-8">{currentSentence.spanish}</p>
-                {showTranscriptionEnglish && (
-                  <>
-                    <hr className="my-2 border-border" />
-                    <p className="text-small text-ink-muted">{currentSentence.english}</p>
-                  </>
-                )}
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-small text-ink-muted cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showSpanish}
+                  onChange={(e) => setShowSpanish(e.target.checked)}
+                />
+                Display Spanish
+              </label>
+              <label className="flex items-center gap-2 text-small text-ink-muted cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showEnglish}
+                  onChange={(e) => setShowEnglish(e.target.checked)}
+                />
+                Display English
+              </label>
+            </div>
+            {(showSpanish || showEnglish) && currentSentence && (
+              <div className="mt-2 bg-[#f9f9f9] border border-border rounded-control p-3">
+                {showSpanish && <p className="text-body font-bold text-ink">{currentSentence.spanish}</p>}
+                {showSpanish && showEnglish && <hr className="my-2 border-border" />}
+                {showEnglish && <p className="text-small text-ink-muted">{currentSentence.english}</p>}
               </div>
             )}
           </div>
@@ -580,6 +585,15 @@ function ListeningStoryView({ scenario, onBack }, ref) {
               ))}
             </div>
           )}
+
+          <div className="flex justify-center mb-2">
+            <button
+              onClick={handleRegenerateStory}
+              className="flex items-center gap-1 text-xs text-ink-faint hover:text-ink-muted transition"
+            >
+              🔄 <span>Regenerate Story</span>
+            </button>
+          </div>
         </>
       )}
 
@@ -604,12 +618,24 @@ function ListeningStoryView({ scenario, onBack }, ref) {
 
               <div className="flex flex-col items-center">
                 <button
+                  onClick={handlePreviousSentence}
+                  disabled={currentIndex === 0}
+                  title="Previous sentence"
+                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ◀
+                </button>
+                <span className="text-[11px] text-ink-faint mt-0.5">Previous sentence</span>
+              </div>
+
+              <div className="flex flex-col items-center">
+                <button
                   onClick={handlePlayPause}
                   disabled={playStatus === 'finished'}
                   title={isMainPlaying ? 'Pause' : 'Play'}
                   className={`min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control transition disabled:opacity-40 disabled:cursor-not-allowed ${
                     isMainPlaying ? 'text-primary bg-primary-light' : 'text-ink-muted hover:text-ink hover:bg-primary-light'
-                  }`}
+                  } ${isFirstLoad ? 'play-button-pulse' : ''}`}
                 >
                   {isMainPlaying ? '⏸' : '▶'}
                 </button>
