@@ -27,7 +27,12 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   const [transcriptPlayingIdx, setTranscriptPlayingIdx] = useState(null)
   const [openTranslationIdx, setOpenTranslationIdx] = useState(null)
   const [vocabMatchedCount, setVocabMatchedCount] = useState(0)
-  const [autoplayFailed, setAutoplayFailed] = useState(false)
+  // Audio never starts on its own (SAC-037) — the user must tap "Tap to
+  // Begin" first. Since that's always a direct click handler, the whole
+  // autoplay-policy detection dance this used to need (SAC-024's "Tap to
+  // Play" fallback) is no longer applicable: there's no more silent-autoplay
+  // failure mode to detect when nothing ever autoplays in the first place.
+  const [hasUserStarted, setHasUserStarted] = useState(false)
 
   const synthRef = useRef(null)
   const indexRef = useRef(0)
@@ -111,39 +116,6 @@ function ListeningStoryView({ scenario, onBack }, ref) {
 
       setLoading(false)
       logEvent('session_started', { mode: 'listening', scenario })
-      setTimeout(() => {
-        if (isStale()) return
-        // A fast click (Replay/Prev/Next/End) within this 300ms window
-        // already started manual navigation — don't let this delayed
-        // autoplay kickoff clobber it back to sentence 0.
-        if (manualNavRef.current) return
-        setAutoplayFailed(false)
-        speakSentenceAt(0)
-        // Autoplay policies (notably mobile Safari) can silently reject a
-        // speak() call that isn't inside a direct user-gesture handler —
-        // no error fires, speech just never starts. Detect that by checking
-        // whether the engine actually reports itself speaking shortly after;
-        // if not, surface a "Tap to Play" fallback the user can trigger
-        // directly instead of leaving playback silently stuck.
-        setTimeout(() => {
-          if (isStale()) return
-          // If the user has already manually navigated (Replay/Prev/Next/End)
-          // by the time this stale check fires, they've proven the audio
-          // system works and may have already reached a legitimate 'finished'
-          // state well within this window — the original "did autoplay even
-          // start" question is moot at that point, and forcing playStatus
-          // back to 'idle' here would incorrectly yank away the finished-only
-          // UI (Comprehension/Vocab toggles) that's already correctly showing.
-          if (manualNavRef.current) return
-          // gapTimeoutRef being set means a real onend already fired and the
-          // engine is legitimately resting between sentences — not a stall.
-          // Only flag failure if speech never started at all.
-          if (synthRef.current && !synthRef.current.speaking && !pausedRef.current && !gapTimeoutRef.current) {
-            setAutoplayFailed(true)
-            setPlayStatus('idle')
-          }
-        }, 900)
-      }, 300)
     } catch (err) {
       if (isStale()) return
       console.error('Error loading story:', err)
@@ -264,19 +236,22 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     setShowComprehension(false)
     setShowTranscript(false)
     setVocabMatchedCount(0)
-    setAutoplayFailed(false)
+    setHasUserStarted(false)
 
     loadStory(() => false, true)
   }
 
-  const handleTapToPlay = () => {
-    setAutoplayFailed(false)
+  // The only place audio is ever allowed to start on its own initiative —
+  // everywhere else (resume, next sentence, etc.) is a direct consequence of
+  // this original tap, per the Web Speech API's user-activation model.
+  const handleTapToBegin = () => {
+    setHasUserStarted(true)
+    manualNavRef.current = false
     speakSentenceAt(0)
   }
 
   const handlePlayPause = () => {
     if (playStatus === 'idle') {
-      setAutoplayFailed(false)
       manualNavRef.current = false
       speakSentenceAt(indexRef.current)
     } else if (playStatus === 'playing') {
@@ -314,7 +289,6 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     pauseContextRef.current = null
     utteranceTokenRef.current++
     synthRef.current.cancel()
-    setAutoplayFailed(false)
     manualNavRef.current = true
     speakSentenceAt(idx)
   }
@@ -437,6 +411,21 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     )
   }
 
+  if (story && !hasUserStarted) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+        <p className="text-heading-1 text-ink">{scenario}</p>
+        <p className="text-body text-ink-muted max-w-xs">Ready to listen? Tap below to begin the story.</p>
+        <button
+          onClick={handleTapToBegin}
+          className="min-h-[56px] px-8 rounded-control bg-primary text-white font-semibold text-heading-2 hover:bg-primary-hover transition"
+        >
+          🎧 Tap to Begin
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div>
       <ListeningHeader onRegenerate={story ? handleRegenerateStory : undefined} />
@@ -450,15 +439,6 @@ function ListeningStoryView({ scenario, onBack }, ref) {
 
       {story && (
         <>
-          {autoplayFailed && (
-            <button
-              onClick={handleTapToPlay}
-              className="w-full min-h-[44px] mb-6 px-4 rounded-control text-body font-semibold bg-primary text-white hover:bg-primary-hover transition flex items-center justify-center gap-2"
-            >
-              🔊 Tap to Play
-            </button>
-          )}
-
           <div className="mb-6 bg-surface rounded-card shadow-sm border border-border p-6">
             <p className="text-small text-ink-muted mb-3">{scenario} — Listen carefully</p>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
@@ -556,6 +536,10 @@ function ListeningStoryView({ scenario, onBack }, ref) {
             </div>
           )}
 
+          {playStatus === 'finished' && showComprehension && matchingWords.length > 0 && (
+            <VocabularyMatching words={matchingWords} onProgressChange={(count) => setVocabMatchedCount(count)} rate={rate} />
+          )}
+
           {playStatus === 'finished' && showComprehension && questions.length > 0 && (
             <div className="mb-6">
               <p className="text-heading-2 text-ink mb-3">Comprehension Check</p>
@@ -602,10 +586,6 @@ function ListeningStoryView({ scenario, onBack }, ref) {
                 })}
               </div>
             </div>
-          )}
-
-          {playStatus === 'finished' && showComprehension && matchingWords.length > 0 && (
-            <VocabularyMatching words={matchingWords} onProgressChange={(count) => setVocabMatchedCount(count)} rate={rate} />
           )}
 
           {playStatus === 'finished' && <EmailCapture />}

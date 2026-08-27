@@ -1,54 +1,46 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { Anthropic } from '@anthropic-ai/sdk';
 
 dotenv.config();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CACHE_DIR = path.join(__dirname, '.cache');
-const STORIES_CACHE_PATH = path.join(CACHE_DIR, 'stories.json');
-
-// File-based cache, local to this running process. Note: hosting platforms
-// with ephemeral filesystems (Railway included) don't persist this across
-// redeploys/restarts — it speeds up repeat requests within one running
-// server instance, not across deploys.
-function ensureCacheDir() {
-  if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
-}
-
-function readStoriesCache() {
-  try {
-    ensureCacheDir();
-    if (!fs.existsSync(STORIES_CACHE_PATH)) return {};
-    return JSON.parse(fs.readFileSync(STORIES_CACHE_PATH, 'utf-8'));
-  } catch (err) {
-    console.error('Failed to read stories cache:', err);
-    return {};
-  }
-}
-
-function writeStoriesCache(cache) {
-  try {
-    ensureCacheDir();
-    fs.writeFileSync(STORIES_CACHE_PATH, JSON.stringify(cache, null, 2));
-  } catch (err) {
-    console.error('Failed to write stories cache:', err);
-  }
-}
+// In-memory cache, local to this running process. Replaces the v1.0m
+// filesystem cache (.cache/stories.json), which was unreliable on Railway's
+// ephemeral filesystem with no visible errors when writes silently failed.
+// Lost on restart/redeploy — acceptable, since only the *first* load after a
+// restart needs to pay the generation cost again; every repeat load within
+// that server instance's lifetime is instant.
+const storyCache = new Map();
 
 function getCachedStory(scenario) {
-  const cache = readStoriesCache();
-  return cache[scenario] || null;
+  return storyCache.get(scenario) || null;
 }
 
 function cacheStory(scenario, storyData) {
-  const cache = readStoriesCache();
-  cache[scenario] = storyData;
-  writeStoriesCache(cache);
+  storyCache.set(scenario, storyData);
+  console.log(`[cache] Stored: ${scenario}`);
+}
+
+function clearCache() {
+  storyCache.clear();
+  console.log('[cache] Cleared all stories');
+}
+
+// Separate cache for /api/story-questions (MCQ + vocabulary-matching data),
+// keyed by scenario the same way as storyCache. Deliberately not tied to
+// story content/regenerate: on "Regenerate Story," the cached questions from
+// the old story are served alongside the new one rather than regenerated —
+// see SAC-033's regenerate note in PENDING.md for why that tradeoff was kept.
+const questionsCache = new Map();
+
+function getCachedQuestions(scenario) {
+  return questionsCache.get(scenario) || null;
+}
+
+function cacheQuestions(scenario, data) {
+  questionsCache.set(scenario, data);
+  console.log(`[cache] Stored questions for: ${scenario}`);
 }
 
 const app = express();
@@ -184,11 +176,17 @@ app.post('/api/generate-story', async (req, res) => {
   if (!regenerate) {
     const cached = getCachedStory(scenario);
     if (cached) {
-      console.log(`Using cached story for ${scenario}`);
+      console.log(`[generate-story] Using cached story for '${scenario}'`);
       return res.json(cached);
     }
+  } else {
+    // The old story's questions/vocab-matching data no longer matches what's
+    // about to be generated — drop it so the next /api/story-questions call
+    // regenerates fresh instead of serving a stale, mismatched cache hit.
+    questionsCache.delete(scenario);
+    console.log(`[cache] Cleared questions for regenerate: ${scenario}`);
   }
-  console.log(regenerate ? `Regenerating story for ${scenario}` : `No cache hit, generating story for ${scenario}`);
+  console.log(`[generate-story] ${regenerate ? 'Regenerating' : 'Generating'} story for '${scenario}'`);
 
   try {
     const message = await client.messages.create({
@@ -202,6 +200,16 @@ app.post('/api/generate-story', async (req, res) => {
 Write a story in Spanish, 100-150 words total across 7-10 sentences (natural pacing, with pauses between sentences for a beginner to absorb each one). This is important: EACH sentence must be 10-15 words long — short and punchy, but a complete thought, not a fragment. For example: "Ana entra en el restaurante y busca una mesa vacía cerca de la ventana." (13 words) or "El camarero le trae el menú y le pregunta qué desea comer." (12 words). Keep the grammar simple (present tense, no subjunctive) and give the story a coherent narrative arc — a clear beginning, middle, and end.
 
 Use a VARIED, expanded vocabulary rather than only the most obvious handful of words for this scenario — go beyond the first words that come to mind. For example, for "Ordering at a Restaurant", don't just use pollo/arroz/agua/camarero every time; also draw from a wider pool depending on what fits the story: other foods (pescado, verduras, ensalada, sopa, pan, postre), other drinks (café, vino, cerveza, té, jugo), and varied action verbs (probar, pedir, recomendar, disfrutar, compartir, pagar) — pick whichever of these fit the specific story you're writing, don't force all of them in.
+
+To ensure this story is completely different from any previously generated story for this scenario, explicitly vary at least 5 key elements:
+
+1. Character names and backgrounds — make them distinct individuals with different personalities or professions
+2. Specific items/objects/foods/places relevant to "${scenario}" — use different options than typical defaults
+3. Dialogue and interactions between characters — vary the tone, topics discussed, and problems they address
+4. Central problem/conflict or goal — what challenge do the characters face? Make it different from a basic/typical scenario
+5. Setting details and atmosphere — time of day, weather, mood, environment, season, or crowd level
+
+Even if this is a repeat generation for "${scenario}", make these changes so the story feels completely fresh and new.
 
 Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly this shape:
 
@@ -252,6 +260,13 @@ app.post('/api/story-questions', async (req, res) => {
   if (!scenario || !story_text) {
     return res.status(400).json({ error: 'Missing scenario or story_text' });
   }
+
+  const cachedQuestions = getCachedQuestions(scenario);
+  if (cachedQuestions) {
+    console.log(`[story-questions] Using cached questions for '${scenario}'`);
+    return res.json(cachedQuestions);
+  }
+  console.log(`[story-questions] Generating questions for '${scenario}'`);
 
   try {
     const message = await client.messages.create({
@@ -310,11 +325,13 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
     const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
     const parsed = extractJson(rawText);
 
-    res.json({
+    const questionsData = {
       questions: Array.isArray(parsed.questions) ? parsed.questions : [],
       vocabulary: Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [],
       matchingWords: Array.isArray(parsed.matchingWords) ? parsed.matchingWords : [],
-    });
+    };
+    cacheQuestions(scenario, questionsData);
+    res.json(questionsData);
   } catch (error) {
     console.error('Error in /api/story-questions:', error);
     res.status(500).json({
@@ -327,7 +344,7 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.0q' });
+  res.json({ status: 'ok', version: '1.0s' });
 });
 
 app.listen(PORT, () => {

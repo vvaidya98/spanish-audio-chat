@@ -102,9 +102,17 @@ export default function VocabularyMatching({ words, onProgressChange, rate = 0.8
   // Auto-play the word's audio as soon as it appears (not after the user
   // gets it right) — the user should hear it before they have to match it,
   // not as a reward afterward. Keyed on currentIdx only (not on feedback
-  // state), so a wrong guess doesn't re-trigger a replay.
+  // state), so a wrong guess doesn't re-trigger a replay. The very first
+  // word is the exception: it lands right as this section's UI first
+  // appears, before the user has had a moment to read it — suppress that
+  // one auto-play so it isn't racing the user's own attention. The 🔊 icon
+  // still plays it on demand.
   useEffect(() => {
     if (isComplete || !currentWord) return
+    if (currentIdx === 0) {
+      console.log('[vocab] First word — audio suppressed')
+      return
+    }
     const timer = setTimeout(() => playWord(currentWord.word), WORD_AUTOPLAY_DELAY_MS)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
