@@ -1,12 +1,12 @@
 const ITEMS = [
-  { key: 'back', icon: '←', label: 'Back' },
-  { key: 'mode', icon: '📋', label: 'Mode' },
+  { key: 'home', icon: '🏠', label: 'Home' },
   { key: 'topics', icon: '🎯', label: 'Topics' },
+  { key: 'back', icon: '←', label: 'Back' },
   { key: 'history', icon: '📊', label: 'History' },
 ]
 
-export default function FooterNav({ onBack, onMode, onTopics, onHistory }) {
-  const handlers = { back: onBack, mode: onMode, topics: onTopics, history: onHistory }
+export default function FooterNav({ onHome, onTopics, onBack, onHistory }) {
+  const handlers = { home: onHome, topics: onTopics, back: onBack, history: onHistory }
 
   return (
     <nav

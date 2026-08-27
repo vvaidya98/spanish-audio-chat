@@ -60,7 +60,13 @@ function App() {
     if (mode) { handleBackToModes(); return }
   }
 
-  const handleFooterMode = () => {
+  // "Home" always goes all the way back to the Mode Selector, regardless of
+  // how deep the user is (active story, scenario picker, or history) —
+  // distinct from "Topics"/"Back", which only step back one screen at a
+  // time. No early return after activeViewRef.current.back(): that call's
+  // job is just to save the in-progress session before leaving, not to
+  // decide where Home lands — handleBackToModes() below always still runs.
+  const handleFooterHome = () => {
     if (showHistory) { setShowHistory(false); setSelectedSession(null) }
     if (activeViewRef.current?.back) activeViewRef.current.back()
     handleBackToModes()
@@ -138,20 +144,7 @@ function App() {
         <div className="bg-surface rounded-card shadow-lg p-8">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-heading-1 text-ink">Conversation Amigo</h1>
-            <div className="flex items-center gap-3">
-              {!showHistory && (
-                <button
-                  onClick={() => {
-                    logEvent('history_dashboard_viewed')
-                    setShowHistory(true)
-                  }}
-                  className="min-h-[44px] px-3 rounded-control text-small font-semibold text-primary hover:bg-primary-light transition"
-                >
-                  📊 History
-                </button>
-              )}
-              <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0s</span>
-            </div>
+            <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0t</span>
           </div>
 
           {renderContent()}
@@ -159,9 +152,9 @@ function App() {
       </div>
 
       <FooterNav
-        onBack={handleFooterBack}
-        onMode={handleFooterMode}
+        onHome={handleFooterHome}
         onTopics={handleFooterTopics}
+        onBack={handleFooterBack}
         onHistory={handleFooterHistory}
       />
     </div>

@@ -27,12 +27,11 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   const [transcriptPlayingIdx, setTranscriptPlayingIdx] = useState(null)
   const [openTranslationIdx, setOpenTranslationIdx] = useState(null)
   const [vocabMatchedCount, setVocabMatchedCount] = useState(0)
-  // Audio never starts on its own (SAC-037) — the user must tap "Tap to
-  // Begin" first. Since that's always a direct click handler, the whole
-  // autoplay-policy detection dance this used to need (SAC-024's "Tap to
-  // Play" fallback) is no longer applicable: there's no more silent-autoplay
-  // failure mode to detect when nothing ever autoplays in the first place.
-  const [hasUserStarted, setHasUserStarted] = useState(false)
+  // SAC-045: optional "Display transcription" checkbox + box showing just
+  // the current sentence (separate from the full-story "Display Transcript"
+  // toggle further down, which shows every sentence at once).
+  const [showTranscription, setShowTranscription] = useState(false)
+  const [showTranscriptionEnglish, setShowTranscriptionEnglish] = useState(false)
 
   const synthRef = useRef(null)
   const indexRef = useRef(0)
@@ -74,6 +73,13 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // A new current sentence means any revealed English translation in the
+  // transcription box belongs to the sentence that just ended — hide it so
+  // the user has to deliberately reveal English for the new one too.
+  useEffect(() => {
+    setShowTranscriptionEnglish(false)
+  }, [currentIndex])
 
   // isStale() guards against React StrictMode's dev-mode double-invoke of this
   // effect (mount -> cleanup -> mount): without it, two independent loadStory()
@@ -236,18 +242,9 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     setShowComprehension(false)
     setShowTranscript(false)
     setVocabMatchedCount(0)
-    setHasUserStarted(false)
+    setShowTranscription(false)
 
     loadStory(() => false, true)
-  }
-
-  // The only place audio is ever allowed to start on its own initiative —
-  // everywhere else (resume, next sentence, etc.) is a direct consequence of
-  // this original tap, per the Web Speech API's user-activation model.
-  const handleTapToBegin = () => {
-    setHasUserStarted(true)
-    manualNavRef.current = false
-    speakSentenceAt(0)
   }
 
   const handlePlayPause = () => {
@@ -280,8 +277,8 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   }
 
   // Shared setup for all single-sentence manual navigation actions
-  // (Replay/Prev/Next/End): stop whatever's playing, mark manual-nav mode
-  // so handleSentenceUtteranceEnd won't auto-advance, then speak just the
+  // (First/Next/Last): stop whatever's playing, mark manual-nav mode so
+  // handleSentenceUtteranceEnd won't auto-advance, then speak just the
   // target sentence.
   const manualNavigateTo = (idx) => {
     if (gapTimeoutRef.current) clearTimeout(gapTimeoutRef.current)
@@ -293,8 +290,10 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     speakSentenceAt(idx)
   }
 
-  const handleReplay = () => manualNavigateTo(indexRef.current)
-  const handlePreviousSentence = () => manualNavigateTo(Math.max(0, indexRef.current - 1))
+  // "First sentence" jumps straight to sentence 0, mirroring "Last sentence"
+  // jumping straight to the end — both boundary jumps, not step-by-one moves
+  // (Prompt #021 follow-up correction).
+  const handleJumpToStart = () => manualNavigateTo(0)
   const handleNextSentence = () => manualNavigateTo(Math.min(sentencesRef.current.length - 1, indexRef.current + 1))
   const handleJumpToEnd = () => manualNavigateTo(sentencesRef.current.length - 1)
 
@@ -411,23 +410,10 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     )
   }
 
-  if (story && !hasUserStarted) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
-        <p className="text-heading-1 text-ink">{scenario}</p>
-        <p className="text-body text-ink-muted max-w-xs">Ready to listen? Tap below to begin the story.</p>
-        <button
-          onClick={handleTapToBegin}
-          className="min-h-[56px] px-8 rounded-control bg-primary text-white font-semibold text-heading-2 hover:bg-primary-hover transition"
-        >
-          🎧 Tap to Begin
-        </button>
-      </div>
-    )
-  }
+  const currentSentence = story?.sentences?.[currentIndex]
 
   return (
-    <div>
+    <div className={story ? 'pb-52' : ''}>
       <ListeningHeader onRegenerate={story ? handleRegenerateStory : undefined} />
 
       {error && (
@@ -439,78 +425,42 @@ function ListeningStoryView({ scenario, onBack }, ref) {
 
       {story && (
         <>
-          <div className="mb-6 bg-surface rounded-card shadow-sm border border-border p-6">
-            <p className="text-small text-ink-muted mb-3">{scenario} — Listen carefully</p>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-              <div className="flex items-center justify-center gap-2 sm:justify-start sm:gap-1">
-                <button
-                  onClick={handleReplay}
-                  title="Replay this sentence"
-                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-2xl sm:text-xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
-                >
-                  🔄
-                </button>
-                <button
-                  onClick={handlePreviousSentence}
-                  disabled={currentIndex === 0}
-                  title="Previous sentence"
-                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  ⏮
-                </button>
-                <button
-                  onClick={handlePlayPause}
-                  disabled={playStatus === 'finished'}
-                  title={isMainPlaying ? 'Pause' : 'Play'}
-                  className={`min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control transition disabled:opacity-40 disabled:cursor-not-allowed ${
-                    isMainPlaying ? 'text-primary bg-primary-light' : 'text-ink-muted hover:text-ink hover:bg-primary-light'
-                  }`}
-                >
-                  {isMainPlaying ? '⏸' : '▶'}
-                </button>
-                <button
-                  onClick={handleNextSentence}
-                  disabled={currentIndex >= totalSentences - 1}
-                  title="Next sentence"
-                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  ⏭
-                </button>
-                <button
-                  onClick={handleJumpToEnd}
-                  title="Jump to last sentence"
-                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-2xl sm:text-xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
-                >
-                  ⏩
-                </button>
-              </div>
+          <p className="text-small text-ink-muted mb-3">{scenario} — Listen carefully</p>
 
-              <div className="flex-1">
-                <div className="h-2 bg-border rounded-full overflow-hidden">
-                  <div className="h-full bg-primary transition-all" style={{ width: `${progressPercent}%` }} />
-                </div>
-                <p className="text-small text-ink-muted text-center mt-1">{sentenceLabel}</p>
+          <div className="mb-4">
+            <label className="flex items-center gap-2 text-small text-ink-muted cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showTranscription}
+                onChange={(e) => setShowTranscription(e.target.checked)}
+              />
+              Display transcription
+            </label>
+            {showTranscription && currentSentence && (
+              <div className="mt-2 bg-[#f9f9f9] border border-border rounded-control p-3 relative">
+                <button
+                  onClick={() => setShowTranscriptionEnglish((prev) => !prev)}
+                  title="Show English"
+                  className="absolute top-2 right-2 text-lg text-ink-faint hover:text-ink-muted transition"
+                >
+                  🌐
+                </button>
+                <p className="text-body font-bold text-ink pr-8">{currentSentence.spanish}</p>
+                {showTranscriptionEnglish && (
+                  <>
+                    <hr className="my-2 border-border" />
+                    <p className="text-small text-ink-muted">{currentSentence.english}</p>
+                  </>
+                )}
               </div>
+            )}
+          </div>
 
-              <div className="flex gap-2 justify-center sm:justify-start sm:gap-1">
-                {[
-                  { r: 1.0, label: 'x1.0' },
-                  { r: 0.8, label: 'x0.8' },
-                  { r: 0.5, label: 'x0.5' },
-                ].map(({ r, label }) => (
-                  <button
-                    key={r}
-                    onClick={() => handleSpeedChange(r)}
-                    title={label}
-                    className={`min-w-[44px] min-h-[44px] px-3 sm:px-2 rounded-control text-small font-semibold transition ${
-                      rate === r ? 'bg-primary text-white' : 'bg-primary-light text-primary-text hover:bg-primary/20'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+          <div className="mb-6">
+            <div className="h-2 bg-border rounded-full overflow-hidden">
+              <div className="h-full bg-primary transition-all" style={{ width: `${progressPercent}%` }} />
             </div>
+            <p className="text-small text-ink-muted text-center mt-1">{sentenceLabel}</p>
           </div>
 
           {playStatus === 'finished' && (
@@ -631,6 +581,85 @@ function ListeningStoryView({ scenario, onBack }, ref) {
             </div>
           )}
         </>
+      )}
+
+      {story && (
+        <div
+          className="fixed left-0 right-0 z-40 bg-surface border-t border-border shadow-lg"
+          style={{ bottom: 'calc(60px + env(safe-area-inset-bottom))' }}
+        >
+          <div className="max-w-2xl mx-auto px-4 py-2">
+            <div className="flex items-center justify-around">
+              <div className="flex flex-col items-center">
+                <button
+                  onClick={handleJumpToStart}
+                  disabled={currentIndex === 0}
+                  title="First sentence"
+                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ⏮
+                </button>
+                <span className="text-[11px] text-ink-faint mt-0.5">First sentence</span>
+              </div>
+
+              <div className="flex flex-col items-center">
+                <button
+                  onClick={handlePlayPause}
+                  disabled={playStatus === 'finished'}
+                  title={isMainPlaying ? 'Pause' : 'Play'}
+                  className={`min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                    isMainPlaying ? 'text-primary bg-primary-light' : 'text-ink-muted hover:text-ink hover:bg-primary-light'
+                  }`}
+                >
+                  {isMainPlaying ? '⏸' : '▶'}
+                </button>
+                <span className="text-[11px] text-ink-faint mt-0.5">{isMainPlaying ? 'Pause' : 'Play'}</span>
+              </div>
+
+              <div className="flex flex-col items-center">
+                <button
+                  onClick={handleNextSentence}
+                  disabled={currentIndex >= totalSentences - 1}
+                  title="Next sentence"
+                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ⏭
+                </button>
+                <span className="text-[11px] text-ink-faint mt-0.5">Next sentence</span>
+              </div>
+
+              <div className="flex flex-col items-center">
+                <button
+                  onClick={handleJumpToEnd}
+                  title="Last sentence"
+                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-2xl sm:text-xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
+                >
+                  ⏩
+                </button>
+                <span className="text-[11px] text-ink-faint mt-0.5">Last sentence</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-center mt-2">
+              {[
+                { r: 1.0, label: 'x1.0' },
+                { r: 0.8, label: 'x0.8' },
+                { r: 0.5, label: 'x0.5' },
+              ].map(({ r, label }) => (
+                <button
+                  key={r}
+                  onClick={() => handleSpeedChange(r)}
+                  title={label}
+                  className={`min-w-[44px] min-h-[44px] px-3 rounded-control text-small font-semibold transition ${
+                    rate === r ? 'bg-primary text-white' : 'bg-primary-light text-primary-text hover:bg-primary/20'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

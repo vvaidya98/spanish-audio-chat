@@ -64,6 +64,7 @@ export default function VocabularyMatching({ words, onProgressChange, rate = 0.8
   const [currentIdx, setCurrentIdx] = useState(0)
   const [feedback, setFeedback] = useState(null) // { correct: boolean } | null
   const [locked, setLocked] = useState(false) // true once correct, until "Next" is clicked
+  const [correctCount, setCorrectCount] = useState(0)
 
   const options = useMemo(() => buildOptions(sortedWords, currentIdx), [sortedWords, currentIdx])
   const retryTimeoutRef = useRef(null)
@@ -133,6 +134,7 @@ export default function VocabularyMatching({ words, onProgressChange, rate = 0.8
       setLocked(true)
       playCorrectBeep()
       setFeedback({ correct: true })
+      setCorrectCount((c) => c + 1)
     } else {
       playWrongBeep()
       setFeedback({ correct: false })
@@ -173,6 +175,7 @@ export default function VocabularyMatching({ words, onProgressChange, rate = 0.8
                 🔊
               </button>
             </div>
+            <p className="text-small text-ink-muted mt-1">{correctCount} of {sortedWords.length} correct</p>
           </div>
 
           {feedback?.correct && (
