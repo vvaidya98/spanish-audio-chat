@@ -1,4 +1,4 @@
-# Conversation Amigo — v1.0m
+# Conversation Amigo — v1.0q
 
 A beginner-friendly Spanish conversation practice app with audio voice chat powered by Claude.
 
@@ -6,7 +6,7 @@ A beginner-friendly Spanish conversation practice app with audio voice chat powe
 **Tech Stack:** React 18 + Vite (frontend) | Node.js + Express (backend proxy)  
 **Live app:** https://spanish-audio-chat.netlify.app  
 **Backend:** https://spanish-audio-chat-production.up.railway.app  
-**Current Version:** v1.0m
+**Current Version:** v1.0q
 
 ---
 
@@ -261,10 +261,10 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 ✅ Multi-turn conversation (5-8 exchanges) with listening-first UX — Claude's text hidden until revealed  
 ✅ Manual "Tap to Speak" / "Tap to Send" flow + 3-speed repeat (1x/0.8x/0.6x)  
 ✅ End-of-conversation summary — full transcript, highlighted errors, corrections  
-✅ Listening Mode — 7-10 sentence stories (10-15 words each, varied vocabulary), icon-based playback controls (⏮ ▶/⏸ ⏭) with progress bar + numbered sentence-jump markers + Slow/Normal/Fast speed control (Normal default) + reliable immediate stop, toggle-based Comprehension Check / Transcript (hidden until tapped, not auto-shown), transcript with per-sentence 🔊 play / 🌐 translate icons + click-word definitions, prominent top-of-screen nav buttons (Back / Change Mode / Back to Stories / Regenerate Story)  
-✅ Vocabulary Matching — one word at a time (easiest first), 4-5 options, success/error tones, example phrase + sentence shown after a correct match  
+✅ Listening Mode — 7-10 sentence stories (10-15 words each, varied vocabulary), single-sentence navigation (🔄 Replay / ⏮ Prev / ▶‑⏸ / ⏭ Next / ⏩ End) with progress bar, x1.0/x0.8/x0.5 speed control (x0.8 default), explicit Spanish voice selection + tuned start-of-speech delay for crisper syllables, toggle-based Comprehension Check / Transcript (hidden until tapped, not auto-shown), transcript with per-sentence 🔊 play / 🌐 translate icons + click-word definitions, global sticky footer nav (Back / Mode / Topics / History) on every screen  
+✅ Vocabulary Matching — one word at a time (easiest first), word audio auto-plays as each word appears, green pill-style answer options, success/error tones, example phrase + sentence shown after a correct match, manual "Next →" (no auto-advance timer)  
 ✅ Story caching — repeat visits to an already-generated scenario load near-instantly; "Regenerate Story" forces a fresh one  
-✅ Honest loading indicator — plain spinner + realistic "usually takes N seconds" message during story/response generation, no fake progress percentage  
+✅ Animated loading screen — plain spinner + realistic "usually takes 30 to 40 seconds" message, with real story vocabulary words cycling in one at a time (5 rotating entrance animations) once available, looping until the story is ready — no fake progress percentage  
 ✅ Audio autoplay fallback — a "🔊 Tap to Play" button appears if a browser silently blocks autoplay, so playback is never silently stuck  
 ✅ Mobile-optimized tap targets (44px+) and a compact combined scenario header  
 ✅ 8 scenarios (up from 4) + "Choose One for Me" random-pick-and-start button  
@@ -273,7 +273,7 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 ✅ Card-based design system — centralized color/typography/spacing tokens (teal primary, coral secondary), consistent across every screen  
 ✅ Web Speech API (browser native)  
 ✅ Light background UI (per Vinay's preference)  
-✅ Version badge (v1.0m)  
+✅ Version badge (v1.0q)  
 ✅ Error recovery (back button to change API key or restart)  
 ✅ Deployed to production — Netlify (frontend) + Railway (backend), public GitHub repo with MIT license  
 ✅ Basic analytics logging (console-only for now) + optional post-session email capture form (ships inactive — no Formspree endpoint configured yet)
@@ -287,9 +287,9 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 → Make sure microphone permissions are granted in browser  
 → Refresh the page if speech input stops working mid-session
 
-**TTS sounds robotic or too fast:**
-→ Speech rate is set to 0.8x (slightly slower). May vary by device/OS.  
-→ To adjust, edit src/components/ConversationView.jsx line ~98: `utterance.rate = 0.8`
+**TTS sounds robotic, too fast, or clips the first syllable:**
+→ Default speed is 0.8x in both modes; Listening Mode also has x1.0/x0.8/x0.5 controls. May vary by device/OS.  
+→ Voice selection and start-of-speech timing both live in `src/speechUtils.js` (`applySpanishVoice`, `SPEAK_START_DELAY_MS`) — shared by every component that calls `speechSynthesis.speak()`, rather than being set per-call-site.
 
 **Conversation keeps failing:**
 → Check `.env` has valid `ANTHROPIC_API_KEY` (starts with `sk-ant-`)  
@@ -328,8 +328,8 @@ The app emphasizes **communication over perfection**. Claude will accept imperfe
 
 ## Development
 
-**Live in production as of v1.0m**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
+**Live in production as of v1.0q**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
 
 ---
 
-**Built by Vinay Vaidya | v1.0m | Last updated: 2026-08-25**
+**Built by Vinay Vaidya | v1.0q | Last updated: 2026-08-26**
