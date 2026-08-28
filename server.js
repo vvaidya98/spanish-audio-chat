@@ -498,7 +498,7 @@ app.get('/api/usage-stats', (req, res) => {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.0x' });
+  res.json({ status: 'ok', version: '1.0y' });
 });
 
 app.listen(PORT, () => {

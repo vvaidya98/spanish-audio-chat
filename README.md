@@ -1,4 +1,4 @@
-# Conversation Amigo — v1.0x
+# Conversation Amigo — v1.0y
 
 A beginner-friendly Spanish conversation practice app with audio voice chat powered by Claude.
 
@@ -6,7 +6,7 @@ A beginner-friendly Spanish conversation practice app with audio voice chat powe
 **Tech Stack:** React 18 + Vite (frontend) | Node.js + Express (backend proxy)  
 **Live app:** https://spanish-audio-chat.netlify.app  
 **Backend:** https://spanish-audio-chat-production.up.railway.app  
-**Current Version:** v1.0x
+**Current Version:** v1.0y
 
 ---
 
@@ -51,7 +51,7 @@ Open http://localhost:5173 in your browser. The frontend will call the backend a
 ### Test
 - The footer nav (🏠 Home / 🎧 Listening / 💬 Conversation / 🌐 Translation / 📊 History) is fixed to the bottom of every screen. From Home, tap **🎧 Listening Mode**, then pick a scenario card directly (no confirm step) or tap **🎲 Choose One for Me** for a random one (8 scenarios total). **🗣️ Conversation Mode is currently disabled** ("coming soon" on its mode card) — the flow below still exists in the code and works if re-enabled, it's just not reachable in the live app right now.
 - **Conversation Mode (disabled in the live app, code intact):** select a topic → "Start Conversation". Claude's opening plays as audio (text hidden). Tap "Tap to Speak", say something in Spanish, tap "Tap to Send". Replay at 1x/0.8x/0.6x, or tap "Display text" to reveal it. Continue for 5-8 exchanges, then "End Conversation" for the summary (transcript + corrections) — this also saves the session to history.
-- **Listening Mode:** picking a scenario goes straight to loading (no confirm screen). While the story generates, a plain spinner with an honest "this usually takes 30 to 40 seconds" message plays, with real story vocabulary words cycling in once available — repeat visits to an already-generated scenario load near-instantly (cached in-memory on the backend), or tap the small 🔄 icon near the bottom to regenerate (a confirmation modal guards against accidental taps, since it discards current progress). The story then plays automatically, sentence by sentence, auto-pausing ~1.3s between sentences to absorb what you heard — text stays hidden unless you check "Display Spanish" and/or "Display English" (independent checkboxes, numbered to match the sentence, with a 🔊 replay icon and click-word definitions on the Spanish side). The Play button pulses on a story's first load to show you where to start, and stops for good once you've clicked it (even across a page reload) — a fresh, never-played scenario pulses again. Controls: First (⏮) / Previous (◀) / Play-Pause (▶/⏸, large center button) / Next (▶) / Last (⏩), plus a progress bar with "Sentence X of Y". Two rows below the controls: **Speed** (x1.0/x0.8/x0.6/x0.4, x0.6 is the default) and **Clarity Mode** (Off/Low/Medium/High/Ultra — inserts a pause after connector words like "y"/"pero"/"porque", longer at higher levels), both changeable mid-playback. A **⊕ Quick Translate** button opens a translate overlay without leaving or pausing the story. After the story finishes, two toggle buttons appear — "✓ Check Comprehension" (MCQ questions + one-at-a-time Vocabulary Matching) and "📖 Display Transcript" (numbered sentences with 🔊 play / 🌐 translate icons) — both can be open at once. Navigating away (via the footer nav) saves the session to history.
+- **Listening Mode:** picking a scenario goes straight to loading (no confirm screen). While the story generates, a plain spinner with an honest "this usually takes 10 to 20 seconds" message plays, with real story vocabulary words cycling in once available — repeat visits to an already-generated scenario load near-instantly (cached in-memory on the backend), or tap the small 🔄 icon near the bottom to regenerate (a confirmation modal guards against accidental taps, since it discards current progress). Comprehension Check data (MCQ + Vocabulary Matching) loads in the background after the story appears rather than blocking the spinner on it — Play works immediately, and the Check Comprehension toggle becomes available a bit later, well before the story finishes. The story then plays automatically, sentence by sentence, auto-pausing ~1.3s between sentences to absorb what you heard — text stays hidden unless you check "Display Spanish" and/or "Display English" (independent checkboxes, numbered to match the sentence, with a 🔊 replay icon and click-word definitions on the Spanish side). The Play button pulses on a story's first load to show you where to start, and stops for good once you've clicked it (even across a page reload) — a fresh, never-played scenario pulses again. Controls: First (⏮) / Previous (◀) / Play-Pause (▶/⏸, large center button) / Next (▶) / Last (⏩), plus a progress bar with "Sentence X of Y". Two rows below the controls: **Speed** (x1.0/x0.8/x0.6/x0.4, x0.6 is the default) and **Clarity Mode** (Off/Low/Medium/High/Ultra — inserts a pause after connector words like "y"/"pero"/"porque", longer at higher levels), both changeable mid-playback. A **⊕ Quick Translate** button opens a translate overlay without leaving or pausing the story. After the story finishes, two toggle buttons appear — "✓ Check Comprehension" (MCQ questions + one-at-a-time Vocabulary Matching) and "📖 Display Transcript" (numbered sentences with 🔊 play / 🌐 translate icons) — both can be open at once. Navigating away (via the footer nav) saves the session to history.
 - **Translation:** a standalone page (🌐 in the footer nav) for one-off bidirectional Spanish↔English translation, separate from the in-story Quick Translate overlay — has its own Back button that returns to wherever you were.
 - **Settings / API usage:** tap the version badge (top of the app) to open a modal showing Claude API call counts, token usage, and estimated cost (today / last 7 days / all-time), logged locally by the backend.
 - **History:** tap "📊 History" in the footer nav (from anywhere) to see all past sessions — filter by mode/scenario, click "View" on any card for the full transcript, MCQ/vocab results (Listening), or numbered exchange-by-exchange review with Previous/Next navigation and error highlights (Conversation). Sessions are stored in IndexedDB, local to your browser — check DevTools → Application → IndexedDB → `spanish-audio-chat` → `sessions` to see them directly.
@@ -296,7 +296,8 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 ✅ Regenerate Story — a confirmation modal guards the small 🔄 icon near the bottom, since regenerating discards current progress with no undo  
 ✅ Vocabulary Matching — one word at a time (easiest first), word audio auto-plays as each word appears, green pill-style answer options, success/error tones, example phrase + sentence shown after a correct match, manual "Next →" (no auto-advance timer)  
 ✅ Story caching — in-memory on the backend; repeat visits to an already-generated scenario load near-instantly within that server process (resets on redeploy/restart)  
-✅ Animated loading screen — plain spinner + realistic "usually takes 30 to 40 seconds" message, with real story vocabulary words cycling in one at a time (5 rotating entrance animations) once available, looping until the story is ready — no fake progress percentage  
+✅ Animated loading screen — plain spinner + realistic "usually takes 10 to 20 seconds" message, with real story vocabulary words cycling in one at a time (5 rotating entrance animations) once available, looping until the story is ready — no fake progress percentage  
+✅ Fast first load — the story itself (and Play) is ready as soon as `/api/generate-story` resolves; Comprehension Check data fetches in the background afterward instead of blocking the spinner on it (roughly halves the old first-load wait)  
 ✅ Translation — a standalone bidirectional Spanish↔English page (own Back button) plus an in-story Quick Translate overlay that doesn't pause or leave the story, both backed by real (non-mocked) Claude translation calls  
 ✅ Settings / API usage tracking — tap the version badge to see Claude API call counts, token usage, and estimated cost (today / 7-day trend / all-time), logged locally to SQLite on the backend  
 ✅ Mobile-optimized tap targets (44px+) and a compact combined scenario header  
@@ -360,8 +361,8 @@ The app emphasizes **communication over perfection**. Claude will accept imperfe
 
 ## Development
 
-**Live in production as of v1.0x**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
+**Live in production as of v1.0y**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
 
 ---
 
-**Built by Vinay Vaidya | v1.0x | Last updated: 2026-08-28**
+**Built by Vinay Vaidya | v1.0y | Last updated: 2026-08-28**

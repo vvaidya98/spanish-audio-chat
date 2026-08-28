@@ -154,6 +154,15 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   // effect (mount -> cleanup -> mount): without it, two independent loadStory()
   // calls both eventually call speakSentenceAt(0), racing each other and
   // producing audible word repetition/stutter at story start.
+  //
+  // SAC-074: the loading spinner used to stay up until BOTH /api/generate-story
+  // AND /api/story-questions resolved, even though questions/vocab (the
+  // Comprehension Check + Vocabulary Matching data) aren't needed until the
+  // story finishes playing — minutes away for a 10-sentence story. That made
+  // every first load wait on two sequential Claude calls (each 12-25s+
+  // uncached) instead of one. Story loading now clears the spinner and enables
+  // Play as soon as the story itself is back; questions/vocab fetch in the
+  // background afterward and populate whenever they arrive.
   const loadStory = async (isStale, regenerate = false) => {
     setLoading(true)
     setError('')
@@ -172,25 +181,31 @@ function ListeningStoryView({ scenario, onBack }, ref) {
       if (isStale()) return
       setStory(storyData)
       sentencesRef.current = storyData.sentences || []
-
-      const storyText = (storyData.sentences || []).map((s) => s.spanish).join(' ')
-      const questionsResponse = await apiFetch('/api/story-questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario, story_text: storyText }),
-      })
-      if (!questionsResponse.ok) {
-        const errorData = await questionsResponse.json().catch(() => ({}))
-        throw new Error(errorData.error || `API Error: ${questionsResponse.status}`)
-      }
-      const questionsData = await questionsResponse.json()
-      if (isStale()) return
-      setQuestions(questionsData.questions || [])
-      setQuestionsVocab(questionsData.vocabulary || [])
-      setMatchingWords(questionsData.matchingWords || [])
-
       setLoading(false)
       logEvent('session_started', { mode: 'listening', scenario })
+
+      // Background fetch: a failure here shouldn't hide/error out the story
+      // that's already playable — Comprehension Check just won't have data.
+      try {
+        const storyText = (storyData.sentences || []).map((s) => s.spanish).join(' ')
+        const questionsResponse = await apiFetch('/api/story-questions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenario, story_text: storyText }),
+        })
+        if (!questionsResponse.ok) {
+          const errorData = await questionsResponse.json().catch(() => ({}))
+          throw new Error(errorData.error || `API Error: ${questionsResponse.status}`)
+        }
+        const questionsData = await questionsResponse.json()
+        if (isStale()) return
+        setQuestions(questionsData.questions || [])
+        setQuestionsVocab(questionsData.vocabulary || [])
+        setMatchingWords(questionsData.matchingWords || [])
+      } catch (err) {
+        if (isStale()) return
+        console.error('Error loading comprehension questions:', err)
+      }
     } catch (err) {
       if (isStale()) return
       console.error('Error loading story:', err)
@@ -538,7 +553,11 @@ function ListeningStoryView({ scenario, onBack }, ref) {
       .slice(0, 12)
     return (
       <div>
-        <LoadingSpinner label="Generating your story..." previewWords={previewWords} />
+        <LoadingSpinner
+          label="Generating your story..."
+          estimateText="This usually takes 10 to 20 seconds"
+          previewWords={previewWords}
+        />
       </div>
     )
   }

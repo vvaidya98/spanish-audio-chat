@@ -1,6 +1,6 @@
 {
   "name": "conversation-amigo",
-  "version": "1.0x",
+  "version": "1.0y",
   "type": "module",
   "description": "Beginner Spanish conversation practice with audio voice chat powered by Claude",
   "main": "server.js",
