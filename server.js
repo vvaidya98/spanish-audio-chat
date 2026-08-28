@@ -61,6 +61,7 @@ function featureForEndpoint(endpoint) {
   if (endpoint === '/api/generate-story') return 'Stories';
   if (endpoint === '/api/story-questions') return 'Questions';
   if (endpoint === '/api/translate') return 'Translation';
+  if (endpoint === '/api/generate-custom-story' || endpoint === '/api/generate-suggested-topics') return 'Custom Stories';
   return 'Conversation';
 }
 
@@ -502,6 +503,142 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
   }
 });
 
+// SAC-071: same shape as generateStoryFromClaude above, but for a
+// user-entered topic + difficulty level instead of a fixed scenario, and
+// deliberately never cached — an arbitrary, unbounded set of possible topics
+// isn't a sensible fit for the fixed-scenario SQLite cache (SAC-073) or its
+// warmup list.
+async function generateCustomStoryFromClaude(topic, difficulty) {
+  const difficultyGuide = {
+    Beginner: 'Simple present tense, common everyday vocabulary, short clear sentences, no subjunctive.',
+    Intermediate: 'A mix of present and past tenses, more varied vocabulary, natural sentence structure.',
+    Advanced: 'Complex sentences, subjunctive mood where natural, idiomatic expressions, varied verb tenses.',
+  };
+
+  const message = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 3000,
+    messages: [
+      {
+        role: 'user',
+        content: `You are writing a Spanish listening-comprehension story for a language learner, on the topic: "${topic}".
+
+Difficulty level: ${difficulty}. ${difficultyGuide[difficulty]}
+
+Write the story in Spanish, 8-10 sentences totaling roughly 250-300 words, with a clear beginning, middle, and end.
+
+Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly this shape:
+
+{
+  "sentences": [
+    { "spanish": "María va a un restaurante.", "english": "María goes to a restaurant." }
+  ],
+  "vocabulary": [
+    { "word": "restaurante", "english": "restaurant" }
+  ]
+}
+
+"sentences" must be the story broken into 8-10 individual sentences, each with its exact English translation — these drive sentence-by-sentence audio playback and hover-to-translate in the UI, so each pair must line up precisely. "vocabulary" should include 8-12 useful words from the story (a mix of nouns, verbs, and adjectives), lowercased and stripped of punctuation, each with its English meaning as used in that specific context.`,
+      },
+    ],
+  });
+
+  if (message.stop_reason === 'max_tokens') {
+    console.warn('/api/generate-custom-story: response hit max_tokens, JSON may be truncated');
+  }
+
+  const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+  const parsed = extractJson(rawText);
+
+  const storyData = {
+    sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
+    vocabulary: Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [],
+  };
+  logApiCall('/api/generate-custom-story', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
+  return storyData;
+}
+
+/**
+ * POST /api/generate-custom-story
+ * Generates a Spanish listening story for a user-entered topic + difficulty
+ * (SAC-071). Never cached — see generateCustomStoryFromClaude above.
+ */
+app.post('/api/generate-custom-story', async (req, res) => {
+  const { topic, difficulty } = req.body;
+
+  if (!topic || !topic.trim()) {
+    return res.status(400).json({ error: 'Topic is required' });
+  }
+  if (!['Beginner', 'Intermediate', 'Advanced'].includes(difficulty)) {
+    return res.status(400).json({ error: 'Invalid difficulty level' });
+  }
+
+  const trimmedTopic = topic.trim();
+  // Every call here produces a brand-new story for this exact topic string —
+  // any previously-cached /api/story-questions data for it (from an earlier
+  // generation of the same topic text) no longer matches and would otherwise
+  // be served stale, the same class of bug SAC-034 fixed for regenerating a
+  // pre-built scenario.
+  questionsCache.delete(trimmedTopic);
+
+  console.log(`[generate-custom-story] Generating story for topic '${trimmedTopic}' (${difficulty})`);
+
+  try {
+    const storyData = await generateCustomStoryFromClaude(trimmedTopic, difficulty);
+    res.json(storyData);
+  } catch (error) {
+    console.error('Error in /api/generate-custom-story:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to generate custom story',
+    });
+  }
+});
+
+async function generateSuggestedTopicsFromClaude() {
+  const message = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 300,
+    messages: [
+      {
+        role: 'user',
+        content: `Generate 6 interesting and diverse listening-story topics for a beginner-to-intermediate Spanish learner.
+
+Topics should be:
+- Everyday scenarios people naturally talk/tell stories about
+- Varied (not all food, not all travel)
+- Understandable at an A1-A2 level
+- 2-5 words each
+
+Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly this shape:
+
+{ "topics": ["topic 1", "topic 2", "topic 3", "topic 4", "topic 5", "topic 6"] }`,
+      },
+    ],
+  });
+
+  const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+  const parsed = extractJson(rawText);
+  logApiCall('/api/generate-suggested-topics', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
+  return Array.isArray(parsed.topics) ? parsed.topics : [];
+}
+
+/**
+ * POST /api/generate-suggested-topics
+ * 6 fresh topic suggestions for the custom-topic form's "🔄" refresh (SAC-071).
+ */
+app.post('/api/generate-suggested-topics', async (req, res) => {
+  try {
+    console.log('[generate-suggested-topics] Generating fresh suggestions...');
+    const topics = await generateSuggestedTopicsFromClaude();
+    res.json({ topics });
+  } catch (error) {
+    console.error('Error in /api/generate-suggested-topics:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to generate suggested topics',
+    });
+  }
+});
+
 /**
  * POST /api/translate
  * Bidirectional Spanish <-> English translation for the Translation tool.
@@ -585,7 +722,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.0z', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.1a', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {

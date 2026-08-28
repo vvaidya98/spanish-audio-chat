@@ -29,6 +29,12 @@ function App() {
   // the in-story Quick Translate modal (SAC-059/060) is for instead.
   const [previousMode, setPreviousMode] = useState('')
   const [previousScenario, setPreviousScenario] = useState('')
+  // SAC-071: holds a custom topic's pre-generated story (and the topic/
+  // difficulty it came from, for Regenerate) between CustomTopicForm handing
+  // it off and ListeningStoryView mounting to play it. `nonce` makes the key
+  // below unique even if a user types the exact same topic text twice in a
+  // row via the form — `scenario` alone wouldn't force a remount in that case.
+  const [customSession, setCustomSession] = useState(null)
   // Points at whichever of ConversationView/ListeningStoryView is currently
   // mounted (only one ever is) — lets FooterNav trigger that view's own
   // save-then-navigate action even though its in-view Back button is gone.
@@ -45,6 +51,7 @@ function App() {
     }
     setMode(selectedMode)
     setScenario('')
+    setCustomSession(null)
     setApiError('')
   }
 
@@ -56,22 +63,35 @@ function App() {
   const handleBackToModes = () => {
     setMode('')
     setScenario('')
+    setCustomSession(null)
     setApiError('')
   }
 
   const handleSelectScenario = (selectedScenario) => {
     setScenario(selectedScenario)
+    setCustomSession(null)
+    setApiError('')
+  }
+
+  // SAC-071: CustomTopicForm already generated the story before this fires —
+  // this just hands it off to ListeningStoryView the same way picking a
+  // pre-built scenario hands off a scenario name.
+  const handleCustomStorySelected = ({ storyData, topic, difficulty }) => {
+    setCustomSession({ storyData, topic, difficulty, nonce: Date.now() })
+    setScenario(topic)
     setApiError('')
   }
 
   const handleReset = () => {
     setScenario('')
+    setCustomSession(null)
     setApiError('')
   }
 
   const handleApiError = (error) => {
     setApiError(error)
     setScenario('')
+    setCustomSession(null)
   }
 
   // "Home" always goes all the way back to the Mode Selector, regardless of
@@ -140,6 +160,8 @@ function App() {
           onBackToModes={handleBackToModes}
           startLabel={mode === 'listening' ? 'Begin Story' : 'Start Conversation'}
           skipConfirm={mode === 'listening'}
+          showCustomTopic={mode === 'listening'}
+          onCustomStorySelected={handleCustomStorySelected}
         />
       )
     }
@@ -147,9 +169,11 @@ function App() {
     if (mode === 'listening') {
       return (
         <ListeningStoryView
-          key={scenario}
+          key={customSession ? `custom-${customSession.nonce}` : scenario}
           ref={activeViewRef}
           scenario={scenario}
+          storyData={customSession?.storyData}
+          customDifficulty={customSession?.difficulty}
           onBack={handleReset}
         />
       )
@@ -176,7 +200,7 @@ function App() {
               onClick={() => setShowAboutModal(true)}
               className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold cursor-pointer hover:bg-primary-light/70 transition"
             >
-              v1.0z
+              v1.1a
             </button>
           </div>
 

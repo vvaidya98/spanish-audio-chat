@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import CustomTopicForm from './CustomTopicForm'
 
 export const DEFAULT_SCENARIOS = [
   {
@@ -35,8 +36,23 @@ export const DEFAULT_SCENARIOS = [
   },
 ]
 
-export default function ScenarioSelector({ onSelectScenario, apiError, onRetry, onBackToModes, startLabel = 'Start Conversation', skipConfirm = false }) {
+// SAC-071: showCustomTopic/onCustomStorySelected gate the "Create Custom
+// Topic" card behind an explicit prop rather than always rendering it — this
+// component is shared with Conversation Mode (currently disabled app-wide,
+// but the code path still exists), and a custom Listening topic doesn't
+// belong there if that mode is ever re-enabled.
+export default function ScenarioSelector({
+  onSelectScenario,
+  apiError,
+  onRetry,
+  onBackToModes,
+  startLabel = 'Start Conversation',
+  skipConfirm = false,
+  showCustomTopic = false,
+  onCustomStorySelected,
+}) {
   const [pendingScenario, setPendingScenario] = useState(null)
+  const [showCustomForm, setShowCustomForm] = useState(false)
 
   const handleChooseForMe = () => {
     const pick = DEFAULT_SCENARIOS[Math.floor(Math.random() * DEFAULT_SCENARIOS.length)]
@@ -95,16 +111,34 @@ export default function ScenarioSelector({ onSelectScenario, apiError, onRetry, 
       <p className="text-body text-ink-muted mb-6">Choose a conversation topic to get started:</p>
 
       <div className="grid gap-4 mb-6">
-        {DEFAULT_SCENARIOS.map((s, idx) => (
-          <button
-            key={idx}
-            onClick={() => (skipConfirm ? onSelectScenario(s.title) : setPendingScenario(s))}
-            className="p-4 bg-surface border-2 border-border rounded-card shadow-sm hover:border-primary hover:shadow-md transition text-left"
-          >
-            <p className="font-bold text-ink text-heading-2">{s.title}</p>
-            <p className="text-ink-muted text-small mt-1">{s.context}</p>
-          </button>
-        ))}
+        {(() => {
+          const cards = DEFAULT_SCENARIOS.map((s) => (
+            <button
+              key={s.title}
+              onClick={() => (skipConfirm ? onSelectScenario(s.title) : setPendingScenario(s))}
+              className="p-4 bg-surface border-2 border-border rounded-card shadow-sm hover:border-primary hover:shadow-md transition text-left"
+            >
+              <p className="font-bold text-ink text-heading-2">{s.title}</p>
+              <p className="text-ink-muted text-small mt-1">{s.context}</p>
+            </button>
+          ))
+          if (showCustomTopic) {
+            cards.splice(
+              2,
+              0,
+              <button
+                key="custom-topic"
+                onClick={() => setShowCustomForm(true)}
+                className="p-4 bg-primary-light border-2 border-primary rounded-card shadow-sm hover:shadow-md transition text-left"
+              >
+                <span className="text-xl mb-1 block">✨</span>
+                <p className="font-bold text-ink text-heading-2">Create Custom Topic</p>
+                <p className="text-ink-muted text-small mt-1">Build your own story on any topic</p>
+              </button>
+            )
+          }
+          return cards
+        })()}
       </div>
 
       <button
@@ -113,6 +147,17 @@ export default function ScenarioSelector({ onSelectScenario, apiError, onRetry, 
       >
         🎲 Choose One for Me
       </button>
+
+      {showCustomTopic && (
+        <CustomTopicForm
+          isOpen={showCustomForm}
+          onClose={() => setShowCustomForm(false)}
+          onStoryGenerated={(session) => {
+            setShowCustomForm(false)
+            onCustomStorySelected(session)
+          }}
+        />
+      )}
     </div>
   )
 }

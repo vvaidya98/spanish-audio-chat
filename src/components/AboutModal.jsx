@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { apiFetch } from '../api'
 import { getAllSessions } from '../db'
 
-const APP_VERSION = '1.0z'
+const APP_VERSION = '1.1a'
 
 // SAC-061/063/064: discreet Settings/Info surface, only reachable by clicking
 // the version badge — deliberately not a footer/nav item, since this is dev

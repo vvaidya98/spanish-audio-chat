@@ -1,4 +1,4 @@
-# Conversation Amigo — v1.0z
+# Conversation Amigo — v1.1a
 
 A beginner-friendly Spanish conversation practice app with audio voice chat powered by Claude.
 
@@ -6,7 +6,7 @@ A beginner-friendly Spanish conversation practice app with audio voice chat powe
 **Tech Stack:** React 18 + Vite (frontend) | Node.js + Express (backend proxy)  
 **Live app:** https://spanish-audio-chat.netlify.app  
 **Backend:** https://spanish-audio-chat-production.up.railway.app  
-**Current Version:** v1.0z
+**Current Version:** v1.1a
 
 ---
 
@@ -49,7 +49,7 @@ npm run backend
 Open http://localhost:5173 in your browser. The frontend will call the backend at `http://localhost:3000/api/*`.
 
 ### Test
-- The footer nav (🏠 Home / 🎧 Listening / 💬 Conversation / 🌐 Translation / 📊 History) is fixed to the bottom of every screen. From Home, tap **🎧 Listening Mode**, then pick a scenario card directly (no confirm step) or tap **🎲 Choose One for Me** for a random one (8 scenarios total). **🗣️ Conversation Mode is currently disabled** ("coming soon" on its mode card) — the flow below still exists in the code and works if re-enabled, it's just not reachable in the live app right now.
+- The footer nav (🏠 Home / 🎧 Listening / 💬 Conversation / 🌐 Translation / 📊 History) is fixed to the bottom of every screen. From Home, tap **🎧 Listening Mode**, then pick a scenario card directly (no confirm step), tap **🎲 Choose One for Me** for a random one (8 pre-built scenarios total), or tap **✨ Create Custom Topic** (3rd card) to enter any topic of your own — type it or pick from 6 suggested-topic pills (tap 🔄 for 6 new Claude-generated ones), choose a Beginner/Intermediate/Advanced difficulty, and Generate Story (~20s). A custom story plays through the exact same view as a pre-built one, with every feature below — Regenerate on a custom story generates a new story for the *same* topic and difficulty, not a return to the form. **🗣️ Conversation Mode is currently disabled** ("coming soon" on its mode card) — the flow below still exists in the code and works if re-enabled, it's just not reachable in the live app right now.
 - **Conversation Mode (disabled in the live app, code intact):** select a topic → "Start Conversation". Claude's opening plays as audio (text hidden). Tap "Tap to Speak", say something in Spanish, tap "Tap to Send". Replay at 1x/0.8x/0.6x, or tap "Display text" to reveal it. Continue for 5-8 exchanges, then "End Conversation" for the summary (transcript + corrections) — this also saves the session to history.
 - **Listening Mode:** picking a scenario goes straight to loading (no confirm screen). While the story generates, a plain spinner with an honest "this usually takes 10 to 20 seconds" message plays, with real story vocabulary words cycling in once available — repeat visits to an already-generated scenario load near-instantly (cached in SQLite on the backend, automatically re-warmed within a few minutes of every deploy, so this holds even for the *first* real visit after a fresh deploy — see "Story caching" below), or tap the small 🔄 icon near the bottom to regenerate (a confirmation modal guards against accidental taps, since it discards current progress). Comprehension Check data (MCQ + Vocabulary Matching) loads in the background after the story appears rather than blocking the spinner on it — Play works immediately, and the Check Comprehension toggle becomes available a bit later, well before the story finishes. The story then plays automatically, sentence by sentence, auto-pausing ~1.3s between sentences to absorb what you heard — text stays hidden unless you check "Display Spanish" and/or "Display English" (independent checkboxes, numbered to match the sentence, with a 🔊 replay icon and click-word definitions on the Spanish side). The Play button pulses on a story's first load to show you where to start, and stops for good once you've clicked it (even across a page reload) — a fresh, never-played scenario pulses again. Controls: First (⏮) / Previous (◀) / Play-Pause (▶/⏸, large center button) / Next (▶) / Last (⏩), plus a progress bar with "Sentence X of Y". Two rows below the controls: **Speed** (x1.0/x0.8/x0.6/x0.4, x0.6 is the default) and **Clarity Mode** (Off/Low/Medium/High/Ultra — inserts a pause after connector words like "y"/"pero"/"porque", longer at higher levels), both changeable mid-playback. A **⊕ Quick Translate** button opens a translate overlay without leaving or pausing the story. After the story finishes, two toggle buttons appear — "✓ Check Comprehension" (MCQ questions + one-at-a-time Vocabulary Matching) and "📖 Display Transcript" (numbered sentences with 🔊 play / 🌐 translate icons) — both can be open at once. Navigating away (via the footer nav) saves the session to history.
 - **Translation:** a standalone page (🌐 in the footer nav) for one-off bidirectional Spanish↔English translation, separate from the in-story Quick Translate overlay — has its own Back button that returns to wherever you were.
@@ -103,7 +103,8 @@ spanish-audio-chat/
 │       ├── TranslationView.jsx      # Standalone bidirectional Spanish/English translator page
 │       ├── QuickTranslateModal.jsx  # In-story translate overlay (doesn't leave the story)
 │       ├── RegenerateModal.jsx      # Confirmation gate in front of "Regenerate Story"
-│       └── AboutModal.jsx           # Version badge → API usage/cost stats
+│       ├── AboutModal.jsx           # Version badge → API usage/cost stats
+│       └── CustomTopicForm.jsx      # Modal: user topic + difficulty → generated story
 └── public/                # Static assets (if needed)
 ```
 
@@ -238,6 +239,28 @@ Generates 2-3 multiple-choice comprehension questions for a given story, with En
 ```
 `vocabulary` here is separate from the story's own vocabulary — question words (e.g. "dónde", "quién") often don't appear in the story text, so they need their own definitions for click-to-define. `matchingWords` is words taken verbatim from the story text, 5-10 entries with a genuine easy/medium/hard difficulty mix, for the Vocabulary Matching exercise — each entry's example phrase/sentence use the word in a context *different* from the story, shown after a correct match.
 
+### `POST /api/generate-custom-story`
+Generates a Spanish listening story for a user-entered topic + difficulty (SAC-071), same `{sentences, vocabulary}` shape as `/api/generate-story`. Never cached — every call is a fresh generation.
+
+**Request:**
+```json
+{
+  "topic": "Ordering coffee at a small café",
+  "difficulty": "Beginner"
+}
+```
+`difficulty` must be one of `"Beginner"`, `"Intermediate"`, `"Advanced"`.
+
+**Response:** same shape as `/api/generate-story`'s response (see above).
+
+### `POST /api/generate-suggested-topics`
+Returns 6 fresh topic suggestions for the custom-topic form's 🔄 refresh button.
+
+**Response:**
+```json
+{ "topics": ["A day at the market", "My first day at work", "..."] }
+```
+
 ### `POST /api/translate`
 One-off bidirectional translation, used by both the standalone Translation page and the in-story Quick Translate modal.
 
@@ -301,7 +324,8 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 ✅ Translation — a standalone bidirectional Spanish↔English page (own Back button) plus an in-story Quick Translate overlay that doesn't pause or leave the story, both backed by real (non-mocked) Claude translation calls  
 ✅ Settings / API usage tracking — tap the version badge to see Claude API call counts, token usage, and estimated cost (today / 7-day trend / all-time), logged locally to SQLite on the backend  
 ✅ Mobile-optimized tap targets (44px+) and a compact combined scenario header  
-✅ 8 scenarios (up from 4) + "Choose One for Me" random-pick-and-start button  
+✅ 8 pre-built scenarios (up from 4) + "Choose One for Me" random-pick-and-start button  
+✅ Custom Listening Topics — enter any topic (or pick a suggested one, with a 🔄 refresh for 6 new Claude-generated suggestions), choose Beginner/Intermediate/Advanced difficulty, get a generated story in ~20s that plays with every Listening Mode feature; Regenerate makes a new story for the same topic/difficulty, never cached  
 ✅ Session history — every completed session saved to IndexedDB (local-only), browsable via a History Dashboard (stats, filters, pagination) and per-session Review (Conversation: exchange-by-exchange with error highlights; Listening: transcript + MCQ/vocab results)  
 ✅ Card-based design system — centralized color/typography/spacing tokens (teal primary, coral secondary), consistent across every screen  
 ✅ Web Speech API (browser native)  
@@ -361,8 +385,8 @@ The app emphasizes **communication over perfection**. Claude will accept imperfe
 
 ## Development
 
-**Live in production as of v1.0z**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
+**Live in production as of v1.1a**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
 
 ---
 
-**Built by Vinay Vaidya | v1.0z | Last updated: 2026-08-28**
+**Built by Vinay Vaidya | v1.1a | Last updated: 2026-08-28**

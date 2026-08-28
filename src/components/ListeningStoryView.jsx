@@ -67,7 +67,16 @@ function splitByConnectors(text) {
   return segments
 }
 
-function ListeningStoryView({ scenario, onBack }, ref) {
+// SAC-071: storyData/customDifficulty are only present for a custom topic
+// (handed down from CustomTopicForm via App.jsx) — for a pre-built scenario
+// both are undefined and every existing code path is untouched. `scenario`
+// doubles as the custom topic's own text in that case (used for the header,
+// sessionStorage keys, and the /api/story-questions cache key exactly the
+// same way a real scenario name already was — no special-casing needed
+// there), while isCustomRef/storyDataRef/customDifficultyRef (below) capture
+// just enough at mount to make loadStory()'s regenerate branch call the
+// right endpoint.
+function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, ref) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [story, setStory] = useState(null)
@@ -107,6 +116,13 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   const [showQuickTranslate, setShowQuickTranslate] = useState(false)
   // SAC-065: confirmation gate in front of Regenerate Story.
   const [showRegenerateModal, setShowRegenerateModal] = useState(false)
+
+  // SAC-071: captured once at mount (this component always remounts via a
+  // fresh `key` for a new custom session — see App.jsx — so these never need
+  // to change mid-lifetime).
+  const isCustomRef = useRef(storyData != null)
+  const storyDataRef = useRef(storyData)
+  const customDifficultyRef = useRef(customDifficulty)
 
   const synthRef = useRef(null)
   const indexRef = useRef(0)
@@ -163,31 +179,57 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   // uncached) instead of one. Story loading now clears the spinner and enables
   // Play as soon as the story itself is back; questions/vocab fetch in the
   // background afterward and populate whenever they arrive.
+  //
+  // SAC-071: three ways to get the story itself, decided once per call: (1)
+  // the very first load of a custom topic — storyDataRef already holds it
+  // (CustomTopicForm generated it before this component even mounted), no
+  // fetch needed; (2) a *regenerate* of a custom topic — storyDataRef is
+  // stale/already-consumed by (1), so this calls /api/generate-custom-story
+  // with the original topic+difficulty instead; (3) everything else (a
+  // pre-built scenario's first load or regenerate) — unchanged, calls
+  // /api/generate-story. All three converge on the same setStory/
+  // sentencesRef/background-questions-fetch logic below.
   const loadStory = async (isStale, regenerate = false) => {
     setLoading(true)
     setError('')
 
     try {
-      const storyResponse = await apiFetch('/api/generate-story', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario, regenerate }),
-      })
-      if (!storyResponse.ok) {
-        const errorData = await storyResponse.json().catch(() => ({}))
-        throw new Error(errorData.error || `API Error: ${storyResponse.status}`)
+      let storyResult
+      if (storyDataRef.current && !regenerate) {
+        storyResult = storyDataRef.current
+      } else if (isCustomRef.current) {
+        const response = await apiFetch('/api/generate-custom-story', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: scenario, difficulty: customDifficultyRef.current }),
+        })
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || `API Error: ${response.status}`)
+        }
+        storyResult = await response.json()
+      } else {
+        const storyResponse = await apiFetch('/api/generate-story', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenario, regenerate }),
+        })
+        if (!storyResponse.ok) {
+          const errorData = await storyResponse.json().catch(() => ({}))
+          throw new Error(errorData.error || `API Error: ${storyResponse.status}`)
+        }
+        storyResult = await storyResponse.json()
       }
-      const storyData = await storyResponse.json()
       if (isStale()) return
-      setStory(storyData)
-      sentencesRef.current = storyData.sentences || []
+      setStory(storyResult)
+      sentencesRef.current = storyResult.sentences || []
       setLoading(false)
-      logEvent('session_started', { mode: 'listening', scenario })
+      logEvent('session_started', { mode: 'listening', scenario, custom: isCustomRef.current })
 
       // Background fetch: a failure here shouldn't hide/error out the story
       // that's already playable — Comprehension Check just won't have data.
       try {
-        const storyText = (storyData.sentences || []).map((s) => s.spanish).join(' ')
+        const storyText = (storyResult.sentences || []).map((s) => s.spanish).join(' ')
         const questionsResponse = await apiFetch('/api/story-questions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
