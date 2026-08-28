@@ -778,7 +778,7 @@ function ListeningStoryView({ scenario, onBack }, ref) {
                   title="Next sentence"
                   className="w-12 h-12 flex items-center justify-center text-xl leading-none rounded-full border-2 border-primary bg-white text-primary hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  ⏭
+                  ▶
                 </button>
                 <span className="text-[11px] text-ink-faint mt-0.5">Next sentence</span>
               </div>
