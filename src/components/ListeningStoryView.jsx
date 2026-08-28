@@ -160,6 +160,20 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
 
     return () => {
       stale = true
+      // SAC-075: every speak() call site (speakSentenceAt,
+      // resumeSentenceFromBoundary, speakClaritySegment,
+      // playTranscriptSentence) schedules the actual .speak() via a
+      // SPEAK_START_DELAY_MS setTimeout, guarded by "if (token !==
+      // utteranceTokenRef.current) return". cancel() below only stops
+      // audio that's already playing — it does nothing about a speak()
+      // that's still scheduled but hasn't fired yet. Without invalidating
+      // the token here too, navigating away within that ~175ms window
+      // (e.g. clicking Play and immediately leaving) let the delayed
+      // speak() fire anyway once the component was already unmounted,
+      // starting audio nothing could stop. Bumping the token makes every
+      // pending guard check fail, exactly like it already does for every
+      // other "supersede the previous utterance" case in this file.
+      utteranceTokenRef.current++
       if (gapTimeoutRef.current) clearTimeout(gapTimeoutRef.current)
       if (synthRef.current) synthRef.current.cancel()
     }
