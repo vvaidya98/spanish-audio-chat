@@ -176,7 +176,7 @@ function App() {
               onClick={() => setShowAboutModal(true)}
               className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold cursor-pointer hover:bg-primary-light/70 transition"
             >
-              v1.0y
+              v1.0z
             </button>
           </div>
 

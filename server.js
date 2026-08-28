@@ -29,6 +29,19 @@ usageDb.exec(`
   )
 `);
 
+// SAC-073: persistent story cache, same db file/mechanism as the usage log
+// above (same "local dev-cost tracking"-style tradeoff — git-ignored, doesn't
+// survive a fresh clone, but does survive a server restart within one
+// deployed environment, which is the whole point: story generation is the
+// same cost either way, this just avoids paying it again on every restart).
+usageDb.exec(`
+  CREATE TABLE IF NOT EXISTS story_cache (
+    scenario TEXT PRIMARY KEY,
+    story_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`);
+
 // Logging failures (e.g. a locked/corrupt db file) must never break the
 // actual API response they're piggybacking on — swallow and log instead.
 function logApiCall(endpoint, model, inputTokens, outputTokens) {
@@ -107,27 +120,59 @@ function getUsageStats() {
   };
 }
 
-// In-memory cache, local to this running process. Replaces the v1.0m
-// filesystem cache (.cache/stories.json), which was unreliable on Railway's
-// ephemeral filesystem with no visible errors when writes silently failed.
-// Lost on restart/redeploy — acceptable, since only the *first* load after a
-// restart needs to pay the generation cost again; every repeat load within
-// that server instance's lifetime is instant.
-const storyCache = new Map();
-
+// SAC-073: SQLite-backed cache (was an in-memory Map through v1.0y — see
+// prior note in git history). The in-memory version was lost on every
+// restart/redeploy, meaning the *first* load after every deploy paid the full
+// ~20s generation cost again, for every scenario independently, no matter how
+// many times it had already been generated in a prior run. Same
+// getCachedStory/cacheStory call sites as before (the route handler and
+// warmupCache() below don't need to know the storage changed underneath
+// them) — reads/writes wrapped in try/catch so a locked or corrupt db file
+// degrades to "cache miss, generate fresh" rather than a hard failure.
 function getCachedStory(scenario) {
-  return storyCache.get(scenario) || null;
+  try {
+    const row = usageDb.prepare('SELECT story_json FROM story_cache WHERE scenario = ?').get(scenario);
+    return row ? JSON.parse(row.story_json) : null;
+  } catch (err) {
+    console.error('[cache] Failed to read story cache, treating as a miss:', err);
+    return null;
+  }
 }
 
 function cacheStory(scenario, storyData) {
-  storyCache.set(scenario, storyData);
-  console.log(`[cache] Stored: ${scenario}`);
+  try {
+    usageDb
+      .prepare(
+        `INSERT INTO story_cache (scenario, story_json, created_at) VALUES (?, ?, ?)
+         ON CONFLICT(scenario) DO UPDATE SET story_json = excluded.story_json, created_at = excluded.created_at`
+      )
+      .run(scenario, JSON.stringify(storyData), new Date().toISOString());
+    console.log(`[cache] Stored: ${scenario}`);
+  } catch (err) {
+    console.error('[cache] Failed to write story cache (story still returned to the caller, just not persisted):', err);
+  }
 }
 
-function clearCache() {
-  storyCache.clear();
-  console.log('[cache] Cleared all stories');
-}
+// SAC-073: must match src/components/ScenarioSelector.jsx's DEFAULT_SCENARIOS
+// titles exactly (the story cache is keyed on this exact string) — there's no
+// shared module between the frontend bundle and this backend to import a
+// single source of truth from, so this list is a deliberate, disclosed
+// duplication. If a scenario is ever added/renamed there, it needs the same
+// change here or it just won't get pre-warmed (falls back to a normal ~20s
+// live generation on first request, same as any scenario not yet cached).
+const WARMUP_SCENARIOS = [
+  'Introducing Yourself',
+  'Ordering at a Restaurant',
+  'Asking for Directions',
+  'Making a New Friend',
+  'At the Airport/Hotel',
+  'At a Pharmacy/Doctor',
+  'Shopping in a Store',
+  'Asking for Help/Emergency',
+];
+
+let cacheReady = false;
+let cacheWarmupStatus = { total: WARMUP_SCENARIOS.length, alreadyCached: 0, generated: 0, failed: 0 };
 
 // Separate cache for /api/story-questions (MCQ + vocabulary-matching data),
 // keyed by scenario the same way as storyCache. Deliberately not tied to
@@ -265,41 +310,20 @@ If the user's Spanish had no errors worth flagging, return "errors": []. Only fl
   }
 });
 
-/**
- * POST /api/generate-story
- * Generates a short listening-comprehension story for a scenario, reusing
- * that scenario's vocabulary, plus a word-by-word vocabulary list for tooltips.
- */
-app.post('/api/generate-story', async (req, res) => {
-  const { scenario, regenerate } = req.body;
-
-  if (!scenario) {
-    return res.status(400).json({ error: 'Missing scenario' });
-  }
-
-  if (!regenerate) {
-    const cached = getCachedStory(scenario);
-    if (cached) {
-      console.log(`[generate-story] Using cached story for '${scenario}'`);
-      return res.json(cached);
-    }
-  } else {
-    // The old story's questions/vocab-matching data no longer matches what's
-    // about to be generated — drop it so the next /api/story-questions call
-    // regenerates fresh instead of serving a stale, mismatched cache hit.
-    questionsCache.delete(scenario);
-    console.log(`[cache] Cleared questions for regenerate: ${scenario}`);
-  }
-  console.log(`[generate-story] ${regenerate ? 'Regenerating' : 'Generating'} story for '${scenario}'`);
-
-  try {
-    const message = await client.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 7000,
-      messages: [
-        {
-          role: 'user',
-          content: `You are writing a Spanish listening-comprehension story for a beginner learner, for the scenario: "${scenario}".
+// SAC-073: pulled out of the /api/generate-story handler so warmupCache()
+// (below) can generate+cache a story the exact same way the route does,
+// without duplicating the prompt or the response-shape logic. Does not touch
+// the cache itself (the route handler and warmupCache() each decide when to
+// call this and what to do with the result) and does not catch its own
+// errors — callers are expected to.
+async function generateStoryFromClaude(scenario) {
+  const message = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 7000,
+    messages: [
+      {
+        role: 'user',
+        content: `You are writing a Spanish listening-comprehension story for a beginner learner, for the scenario: "${scenario}".
 
 Write a story in Spanish, 100-150 words total across 7-10 sentences (natural pacing, with pauses between sentences for a beginner to absorb each one). This is important: EACH sentence must be 10-15 words long — short and punchy, but a complete thought, not a fragment. For example: "Ana entra en el restaurante y busca una mesa vacía cerca de la ventana." (13 words) or "El camarero le trae el menú y le pregunta qué desea comer." (12 words). Keep the grammar simple (present tense, no subjunctive) and give the story a coherent narrative arc — a clear beginning, middle, and end.
 
@@ -329,23 +353,55 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
 "sentences" must be the story broken into 7-10 individual sentences, each with its exact English translation — these drive sentence-by-sentence audio playback and hover-to-translate in the UI, so each pair must line up precisely (one Spanish sentence, one matching English sentence).
 
 The "vocabulary" array must include an entry for EVERY distinct word that appears across all sentences — including small common words like "el", "la", "de", "es", "y", "un" — not just content words. Lowercase each "word" value and strip punctuation so it matches the word as it would be looked up (e.g. "gente." in the story becomes "gente" in vocabulary). Give the English meaning as used in that specific context.`,
-        },
-      ],
-    });
+      },
+    ],
+  });
 
-    if (message.stop_reason === 'max_tokens') {
-      console.warn('/api/generate-story: response hit max_tokens, JSON may be truncated');
+  if (message.stop_reason === 'max_tokens') {
+    console.warn('/api/generate-story: response hit max_tokens, JSON may be truncated');
+  }
+
+  const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+  const parsed = extractJson(rawText);
+
+  const storyData = {
+    sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
+    vocabulary: Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [],
+  };
+  logApiCall('/api/generate-story', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
+  return storyData;
+}
+
+/**
+ * POST /api/generate-story
+ * Generates a short listening-comprehension story for a scenario, reusing
+ * that scenario's vocabulary, plus a word-by-word vocabulary list for tooltips.
+ */
+app.post('/api/generate-story', async (req, res) => {
+  const { scenario, regenerate } = req.body;
+
+  if (!scenario) {
+    return res.status(400).json({ error: 'Missing scenario' });
+  }
+
+  if (!regenerate) {
+    const cached = getCachedStory(scenario);
+    if (cached) {
+      console.log(`[generate-story] Using cached story for '${scenario}'`);
+      return res.json(cached);
     }
+  } else {
+    // The old story's questions/vocab-matching data no longer matches what's
+    // about to be generated — drop it so the next /api/story-questions call
+    // regenerates fresh instead of serving a stale, mismatched cache hit.
+    questionsCache.delete(scenario);
+    console.log(`[cache] Cleared questions for regenerate: ${scenario}`);
+  }
+  console.log(`[generate-story] ${regenerate ? 'Regenerating' : 'Generating'} story for '${scenario}'`);
 
-    const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
-    const parsed = extractJson(rawText);
-
-    const storyData = {
-      sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
-      vocabulary: Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [],
-    };
+  try {
+    const storyData = await generateStoryFromClaude(scenario);
     cacheStory(scenario, storyData);
-    logApiCall('/api/generate-story', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
     res.json(storyData);
   } catch (error) {
     console.error('Error in /api/generate-story:', error);
@@ -494,11 +550,42 @@ app.get('/api/usage-stats', (req, res) => {
   }
 });
 
+// SAC-073: called once, after the server is already listening (see below).
+// Sequential, not parallel — deliberately, to avoid firing 8 concurrent
+// Claude calls against the same API key on every deploy, and because there's
+// no user waiting on this specific timing (unlike a live request). A small
+// delay between calls gives a little breathing room against rate limits.
+async function warmupCache() {
+  console.log(`[startup] Warming up story cache for ${WARMUP_SCENARIOS.length} scenarios...`);
+  for (const scenario of WARMUP_SCENARIOS) {
+    if (getCachedStory(scenario)) {
+      console.log(`  [startup] already cached: ${scenario}`);
+      cacheWarmupStatus.alreadyCached++;
+      continue;
+    }
+    try {
+      console.log(`  [startup] generating: ${scenario}...`);
+      const storyData = await generateStoryFromClaude(scenario);
+      cacheStory(scenario, storyData);
+      cacheWarmupStatus.generated++;
+      console.log(`  [startup] cached: ${scenario}`);
+    } catch (err) {
+      cacheWarmupStatus.failed++;
+      console.error(`  [startup] failed to generate '${scenario}':`, err.message || err);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  cacheReady = true;
+  console.log(
+    `[startup] Cache warmup complete: ${cacheWarmupStatus.alreadyCached} already cached, ${cacheWarmupStatus.generated} generated, ${cacheWarmupStatus.failed} failed`
+  );
+}
+
 /**
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.0y' });
+  res.json({ status: 'ok', version: '1.0z', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {
@@ -507,4 +594,16 @@ app.listen(PORT, () => {
   if (!process.env.ANTHROPIC_API_KEY) {
     console.warn('⚠️  ANTHROPIC_API_KEY not set in .env');
   }
+  // SAC-073: deliberately fired *after* listen(), not awaited before it. The
+  // server is already accepting requests at this point — a scenario that
+  // hasn't warmed up yet just falls through to a normal ~20s live generation
+  // the first time it's requested, same as before this feature existed. This
+  // project already hit one real incident from an unverified assumption about
+  // startup behavior (node:sqlite needing Node 22.5+, which crash-looped the
+  // whole backend on Railway's then-default Node 18 — see CLAUDE.md Decisions
+  // Log) — blocking listen() on ~8 sequential Claude calls (state a 2-3 minute
+  // startup, easily longer under real latency) would risk the same class of
+  // problem again: a slow-to-bind process reads as a failed deploy, not a
+  // "still warming up" one, on most PaaS platforms including this one.
+  warmupCache().catch((err) => console.error('[startup] warmupCache failed:', err));
 });
