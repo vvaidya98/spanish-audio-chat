@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Beginner Spanish conversation practice with audio voice chat powered by Claude",
   "main": "server.js",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
