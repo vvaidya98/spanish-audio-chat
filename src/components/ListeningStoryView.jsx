@@ -3,12 +3,42 @@ import HoverableText from './HoverableText'
 import VocabularyMatching from './VocabularyMatching'
 import EmailCapture from './EmailCapture'
 import LoadingSpinner from './LoadingSpinner'
+import QuickTranslateModal from './QuickTranslateModal'
+import RegenerateModal from './RegenerateModal'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
 import { apiFetch } from '../api'
 import { applySpanishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
 
 const SENTENCE_GAP_MS = 1300
+const SPEED_OPTIONS = [1.0, 0.8, 0.6, 0.4]
+const DEFAULT_RATE = 0.6
+
+// SAC-052 Clarity Mode: when enabled, sentences are spoken as segments split
+// right after each connector word, with a short pause between segments,
+// instead of as one continuous utterance. Mid-sentence pause/resume and
+// mid-sentence speed change fall back to restarting the current sentence in
+// this mode (rather than resuming from the exact word) since the existing
+// onboundary-based resume tracking only covers a single utterance — a
+// disclosed, deliberate scope trim rather than an oversight.
+const CLARITY_CONNECTORS = ['y', 'pero', 'porque', 'cuando', 'mientras', 'si']
+const CLARITY_PAUSE_MS = 130
+
+function splitByConnectors(text) {
+  const words = text.split(' ')
+  const segments = []
+  let current = []
+  words.forEach((word) => {
+    current.push(word)
+    const bare = word.toLowerCase().replace(/[^a-zà-ÿ]/g, '')
+    if (CLARITY_CONNECTORS.includes(bare)) {
+      segments.push(current.join(' '))
+      current = []
+    }
+  })
+  if (current.length) segments.push(current.join(' '))
+  return segments
+}
 
 function ListeningStoryView({ scenario, onBack }, ref) {
   const [loading, setLoading] = useState(true)
@@ -19,7 +49,7 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   const [matchingWords, setMatchingWords] = useState([])
   const [playStatus, setPlayStatus] = useState('idle') // idle, playing, gap, paused, finished
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [rate, setRate] = useState(0.8)
+  const [rate, setRate] = useState(DEFAULT_RATE)
   const [userAnswers, setUserAnswers] = useState({})
   const [showTranscript, setShowTranscript] = useState(false)
   const [showComprehension, setShowComprehension] = useState(false)
@@ -38,10 +68,19 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   // with it, since removing "Tap to Begin" (v1.0t) means there's no longer
   // an unmissable prompt telling a first-time user where to start.
   const [isFirstLoad, setIsFirstLoad] = useState(true)
+  // SAC-052: Clarity Mode toggle. Default OFF, mirrored into a ref so the
+  // async speak chain always reads the current value (toggling mid-playback
+  // applies starting with the next sentence, not the one already speaking).
+  const [clarityMode, setClarityMode] = useState(false)
+  // SAC-059/060: Quick Translate modal, opened without pausing playback.
+  const [showQuickTranslate, setShowQuickTranslate] = useState(false)
+  // SAC-065: confirmation gate in front of Regenerate Story.
+  const [showRegenerateModal, setShowRegenerateModal] = useState(false)
 
   const synthRef = useRef(null)
   const indexRef = useRef(0)
-  const rateRef = useRef(0.8)
+  const rateRef = useRef(DEFAULT_RATE)
+  const clarityModeRef = useRef(false)
   const pausedRef = useRef(false)
   const pauseContextRef = useRef(null) // 'mid-sentence' | 'gap'
   const gapTimeoutRef = useRef(null)
@@ -147,6 +186,41 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     }, SENTENCE_GAP_MS)
   }
 
+  // Clarity Mode's chained per-segment playback (SAC-052). Recurses through
+  // `segments`, pausing CLARITY_PAUSE_MS between each, then hands off to the
+  // normal handleSentenceUtteranceEnd once the last segment finishes — so
+  // auto-advance/gap timing downstream is unaffected by how many segments a
+  // sentence was broken into.
+  const speakClaritySegment = (idx, segments, segIdx) => {
+    if (segIdx >= segments.length) {
+      handleSentenceUtteranceEnd(idx)
+      return
+    }
+
+    const token = ++utteranceTokenRef.current
+    const utterance = new SpeechSynthesisUtterance(segments[segIdx])
+    applySpanishVoice(utterance)
+    utterance.rate = rateRef.current
+    utterance.pitch = 1
+    utterance.onend = () => {
+      if (token !== utteranceTokenRef.current) return
+      setTimeout(() => {
+        if (token !== utteranceTokenRef.current) return
+        speakClaritySegment(idx, segments, segIdx + 1)
+      }, CLARITY_PAUSE_MS)
+    }
+    utterance.onerror = () => {
+      if (token !== utteranceTokenRef.current) return
+      speakClaritySegment(idx, segments, segIdx + 1)
+    }
+
+    synthRef.current.cancel()
+    setTimeout(() => {
+      if (token !== utteranceTokenRef.current) return
+      synthRef.current.speak(utterance)
+    }, SPEAK_START_DELAY_MS)
+  }
+
   const speakSentenceAt = (idx) => {
     const sentences = sentencesRef.current
     if (idx >= sentences.length) {
@@ -159,6 +233,14 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     setPlayStatus('playing')
     speakOffsetRef.current = 0
     lastWordCharIndexRef.current = 0
+
+    if (clarityModeRef.current) {
+      const segments = splitByConnectors(sentences[idx].spanish)
+      if (segments.length > 1) {
+        speakClaritySegment(idx, segments, 0)
+        return
+      }
+    }
 
     const token = ++utteranceTokenRef.current
     const utterance = new SpeechSynthesisUtterance(sentences[idx].spanish)
@@ -250,6 +332,11 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     loadStory(() => false, true)
   }
 
+  const handleConfirmRegenerate = () => {
+    setShowRegenerateModal(false)
+    handleRegenerateStory()
+  }
+
   const handlePlayPause = () => {
     if (playStatus === 'idle') {
       setIsFirstLoad(false)
@@ -304,6 +391,11 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   const handlePreviousSentence = () => manualNavigateTo(Math.max(0, indexRef.current - 1))
   const handleNextSentence = () => manualNavigateTo(Math.min(sentencesRef.current.length - 1, indexRef.current + 1))
   const handleJumpToEnd = () => manualNavigateTo(sentencesRef.current.length - 1)
+
+  const handleClarityModeChange = (checked) => {
+    setClarityMode(checked)
+    clarityModeRef.current = checked
+  }
 
   const handleSpeedChange = (newRate) => {
     rateRef.current = newRate
@@ -434,7 +526,7 @@ function ListeningStoryView({ scenario, onBack }, ref) {
           <p className="text-small text-ink-muted mb-3">{scenario} — Listen carefully</p>
 
           <div className="mb-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center flex-wrap gap-4">
               <label className="flex items-center gap-2 text-small text-ink-muted cursor-pointer">
                 <input
                   type="checkbox"
@@ -451,12 +543,41 @@ function ListeningStoryView({ scenario, onBack }, ref) {
                 />
                 Display English
               </label>
+              <button
+                onClick={() => setShowQuickTranslate(true)}
+                className="min-h-[44px] px-3 rounded-control text-small font-semibold text-primary-text bg-primary-light hover:bg-primary-light/70 transition"
+              >
+                ⊕ Quick Translate
+              </button>
             </div>
             {(showSpanish || showEnglish) && currentSentence && (
               <div className="mt-2 bg-[#f9f9f9] border border-border rounded-control p-3">
-                {showSpanish && <p className="text-body font-bold text-ink">{currentSentence.spanish}</p>}
+                {showSpanish && (
+                  <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-1.5 flex-1">
+                      <span className="text-body font-bold text-ink shrink-0">{currentIndex + 1}.</span>
+                      <HoverableText
+                        text={currentSentence.spanish}
+                        vocabulary={storyVocabMap}
+                        className="text-body font-bold text-ink"
+                        showHoverTranslation={false}
+                      />
+                    </div>
+                    <button
+                      onClick={() => playTranscriptSentence(currentIndex)}
+                      title="Replay this sentence"
+                      className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg shrink-0 rounded-control text-ink-faint hover:text-primary hover:bg-primary-light transition"
+                    >
+                      🔊
+                    </button>
+                  </div>
+                )}
                 {showSpanish && showEnglish && <hr className="my-2 border-border" />}
-                {showEnglish && <p className="text-small text-ink-muted">{currentSentence.english}</p>}
+                {showEnglish && (
+                  <p className="text-small text-ink-muted">
+                    {currentIndex + 1}. {currentSentence.english}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -588,14 +709,22 @@ function ListeningStoryView({ scenario, onBack }, ref) {
 
           <div className="flex justify-center mb-2">
             <button
-              onClick={handleRegenerateStory}
-              className="flex items-center gap-1 text-xs text-ink-faint hover:text-ink-muted transition"
+              onClick={() => setShowRegenerateModal(true)}
+              title="Regenerate Story"
+              className="min-w-[32px] min-h-[32px] flex items-center justify-center text-sm text-ink-faint hover:text-ink-muted transition"
             >
-              🔄 <span>Regenerate Story</span>
+              🔄
             </button>
           </div>
         </>
       )}
+
+      <RegenerateModal
+        isOpen={showRegenerateModal}
+        scenario={scenario}
+        onCancel={() => setShowRegenerateModal(false)}
+        onConfirm={handleConfirmRegenerate}
+      />
 
       {story && (
         <div
@@ -608,12 +737,12 @@ function ListeningStoryView({ scenario, onBack }, ref) {
                 <button
                   onClick={handleJumpToStart}
                   disabled={currentIndex === 0}
-                  title="First sentence"
-                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="First"
+                  className="w-12 h-12 flex items-center justify-center text-xl leading-none rounded-full border-2 border-primary bg-white text-primary hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   ⏮
                 </button>
-                <span className="text-[11px] text-ink-faint mt-0.5">First sentence</span>
+                <span className="text-[11px] text-ink-faint mt-0.5">First</span>
               </div>
 
               <div className="flex flex-col items-center">
@@ -621,7 +750,7 @@ function ListeningStoryView({ scenario, onBack }, ref) {
                   onClick={handlePreviousSentence}
                   disabled={currentIndex === 0}
                   title="Previous sentence"
-                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-12 h-12 flex items-center justify-center text-xl leading-none rounded-full border-2 border-primary bg-white text-primary hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   ◀
                 </button>
@@ -633,9 +762,9 @@ function ListeningStoryView({ scenario, onBack }, ref) {
                   onClick={handlePlayPause}
                   disabled={playStatus === 'finished'}
                   title={isMainPlaying ? 'Pause' : 'Play'}
-                  className={`min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control transition disabled:opacity-40 disabled:cursor-not-allowed ${
-                    isMainPlaying ? 'text-primary bg-primary-light' : 'text-ink-muted hover:text-ink hover:bg-primary-light'
-                  } ${isFirstLoad ? 'play-button-pulse' : ''}`}
+                  className={`w-20 h-20 flex items-center justify-center text-4xl leading-none rounded-full bg-primary text-white shadow-lg hover:bg-primary-hover transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                    isFirstLoad ? 'play-button-pulse' : ''
+                  }`}
                 >
                   {isMainPlaying ? '⏸' : '▶'}
                 </button>
@@ -647,7 +776,7 @@ function ListeningStoryView({ scenario, onBack }, ref) {
                   onClick={handleNextSentence}
                   disabled={currentIndex >= totalSentences - 1}
                   title="Next sentence"
-                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-3xl sm:text-2xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-12 h-12 flex items-center justify-center text-xl leading-none rounded-full border-2 border-primary bg-white text-primary hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   ⏭
                 </button>
@@ -657,35 +786,47 @@ function ListeningStoryView({ scenario, onBack }, ref) {
               <div className="flex flex-col items-center">
                 <button
                   onClick={handleJumpToEnd}
-                  title="Last sentence"
-                  className="min-w-[48px] min-h-[48px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center text-2xl sm:text-xl leading-none rounded-control text-ink-muted hover:text-ink hover:bg-primary-light transition"
+                  title="Last"
+                  className="w-12 h-12 flex items-center justify-center text-lg leading-none rounded-full border-2 border-primary bg-white text-primary hover:bg-primary-light transition"
                 >
                   ⏩
                 </button>
-                <span className="text-[11px] text-ink-faint mt-0.5">Last sentence</span>
+                <span className="text-[11px] text-ink-faint mt-0.5">Last</span>
               </div>
             </div>
 
-            <div className="flex gap-2 justify-center mt-2">
-              {[
-                { r: 1.0, label: 'x1.0' },
-                { r: 0.8, label: 'x0.8' },
-                { r: 0.5, label: 'x0.5' },
-              ].map(({ r, label }) => (
-                <button
-                  key={r}
-                  onClick={() => handleSpeedChange(r)}
-                  title={label}
-                  className={`min-w-[44px] min-h-[44px] px-3 rounded-control text-small font-semibold transition ${
-                    rate === r ? 'bg-primary text-white' : 'bg-primary-light text-primary-text hover:bg-primary/20'
-                  }`}
+            {/* SAC-057: subtle, thumb-friendly zone — compact, low-contrast,
+                deliberately not competing visually with the controls above. */}
+            <div className="flex items-center justify-center gap-4 mt-2 pt-2 border-t border-border">
+              <label className="flex items-center gap-1.5 text-xs text-ink-faint">
+                Speed:
+                <select
+                  value={rate}
+                  onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
+                  className="text-xs text-ink-faint bg-transparent border border-border rounded-control px-1.5 py-0.5 focus:outline-none"
                 >
-                  {label}
-                </button>
-              ))}
+                  {SPEED_OPTIONS.map((r) => (
+                    <option key={r} value={r}>
+                      x{r.toFixed(1)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-ink-faint cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={clarityMode}
+                  onChange={(e) => handleClarityModeChange(e.target.checked)}
+                />
+                Clarity Mode
+              </label>
             </div>
           </div>
         </div>
+      )}
+
+      {story && (
+        <QuickTranslateModal isOpen={showQuickTranslate} onClose={() => setShowQuickTranslate(false)} />
       )}
     </div>
   )

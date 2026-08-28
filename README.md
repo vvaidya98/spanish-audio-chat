@@ -1,4 +1,4 @@
-# Conversation Amigo — v1.0q
+# Conversation Amigo — v1.0x
 
 A beginner-friendly Spanish conversation practice app with audio voice chat powered by Claude.
 
@@ -6,7 +6,7 @@ A beginner-friendly Spanish conversation practice app with audio voice chat powe
 **Tech Stack:** React 18 + Vite (frontend) | Node.js + Express (backend proxy)  
 **Live app:** https://spanish-audio-chat.netlify.app  
 **Backend:** https://spanish-audio-chat-production.up.railway.app  
-**Current Version:** v1.0q
+**Current Version:** v1.0x
 
 ---
 
@@ -273,7 +273,7 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 ✅ Card-based design system — centralized color/typography/spacing tokens (teal primary, coral secondary), consistent across every screen  
 ✅ Web Speech API (browser native)  
 ✅ Light background UI (per Vinay's preference)  
-✅ Version badge (v1.0q)  
+✅ Version badge (v1.0x, click for API usage/cost stats)  
 ✅ Error recovery (back button to change API key or restart)  
 ✅ Deployed to production — Netlify (frontend) + Railway (backend), public GitHub repo with MIT license  
 ✅ Basic analytics logging (console-only for now) + optional post-session email capture form (ships inactive — no Formspree endpoint configured yet)
@@ -288,7 +288,7 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 → Refresh the page if speech input stops working mid-session
 
 **TTS sounds robotic, too fast, or clips the first syllable:**
-→ Default speed is 0.8x in both modes; Listening Mode also has x1.0/x0.8/x0.5 controls. May vary by device/OS.  
+→ Default speed is 0.8x in Conversation Mode; Listening Mode defaults to x0.6 with x1.0/x0.8/x0.6/x0.4 controls, plus an optional Clarity Mode that adds micro-pauses around connector words. May vary by device/OS.  
 → Voice selection and start-of-speech timing both live in `src/speechUtils.js` (`applySpanishVoice`, `SPEAK_START_DELAY_MS`) — shared by every component that calls `speechSynthesis.speak()`, rather than being set per-call-site.
 
 **Conversation keeps failing:**
@@ -328,8 +328,8 @@ The app emphasizes **communication over perfection**. Claude will accept imperfe
 
 ## Development
 
-**Live in production as of v1.0q**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
+**Live in production as of v1.0x**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
 
 ---
 
-**Built by Vinay Vaidya | v1.0q | Last updated: 2026-08-26**
+**Built by Vinay Vaidya | v1.0x | Last updated: 2026-08-28**

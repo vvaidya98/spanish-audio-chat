@@ -3,7 +3,7 @@ import { apiFetch } from '../api'
 
 const COPIED_MESSAGE_MS = 2000
 
-export default function TranslationView() {
+export default function TranslationView({ onBack }) {
   const [sourceText, setSourceText] = useState('')
   const [translatedText, setTranslatedText] = useState('')
   const [isSpanishToEnglish, setIsSpanishToEnglish] = useState(true)
@@ -68,6 +68,13 @@ export default function TranslationView() {
 
   return (
     <div>
+      <button
+        onClick={onBack}
+        className="min-h-[44px] mb-4 px-3 -ml-1 rounded-control text-primary-text font-semibold hover:bg-primary-light transition flex items-center gap-1"
+      >
+        ← Back
+      </button>
+
       <p className="text-heading-1 text-ink mb-4">🌐 Translation</p>
 
       <button

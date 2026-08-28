@@ -34,3 +34,6 @@ logs/
 
 # Backend story cache (local/ephemeral, regenerated on demand)
 .cache/
+
+# API usage tracking database (local dev-cost tracking, not shared data)
+data/

@@ -1,9 +1,111 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import fs from 'fs';
 import { Anthropic } from '@anthropic-ai/sdk';
+import { DatabaseSync } from 'node:sqlite';
 
 dotenv.config();
+
+// API call usage tracking (SAC-062), for dev cost visibility only — not
+// billed/enforced, just logged. Uses Node's built-in node:sqlite (stable in
+// Node 22.5+/24) rather than an npm dependency like better-sqlite3, so this
+// needs zero extra installs and no native build step. Local file, git-ignored
+// (see .gitignore) — same "doesn't survive a fresh clone" tradeoff as the
+// existing in-memory story caches, just persisted to disk instead of memory
+// since usage stats are meant to accumulate across server restarts.
+const COST_PER_1K_TOKENS = 0.003;
+fs.mkdirSync('./data', { recursive: true });
+const usageDb = new DatabaseSync('./data/api_usage.db');
+usageDb.exec(`
+  CREATE TABLE IF NOT EXISTS api_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_estimate REAL NOT NULL
+  )
+`);
+
+// Logging failures (e.g. a locked/corrupt db file) must never break the
+// actual API response they're piggybacking on — swallow and log instead.
+function logApiCall(endpoint, model, inputTokens, outputTokens) {
+  try {
+    const cost = ((inputTokens + outputTokens) / 1000) * COST_PER_1K_TOKENS;
+    usageDb
+      .prepare(
+        'INSERT INTO api_calls (timestamp, endpoint, model, input_tokens, output_tokens, cost_estimate) VALUES (?, ?, ?, ?, ?, ?)'
+      )
+      .run(new Date().toISOString(), endpoint, model, inputTokens, outputTokens, cost);
+  } catch (err) {
+    console.error('[usage] Failed to log API call:', err);
+  }
+}
+
+function featureForEndpoint(endpoint) {
+  if (endpoint === '/api/generate-story') return 'Stories';
+  if (endpoint === '/api/story-questions') return 'Questions';
+  if (endpoint === '/api/translate') return 'Translation';
+  return 'Conversation';
+}
+
+function getUsageStats() {
+  const now = Date.now();
+  const todayStartIso = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+  const sevenDaysAgoIso = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const fourteenDaysAgoIso = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+  const sumRow = (rows) =>
+    rows.reduce(
+      (acc, r) => ({
+        calls: acc.calls + 1,
+        tokens: acc.tokens + r.input_tokens + r.output_tokens,
+        cost: acc.cost + r.cost_estimate,
+      }),
+      { calls: 0, tokens: 0, cost: 0 }
+    );
+
+  const allRows = usageDb.prepare('SELECT * FROM api_calls').all();
+  const todayRows = allRows.filter((r) => r.timestamp >= todayStartIso);
+  const last7Rows = allRows.filter((r) => r.timestamp >= sevenDaysAgoIso);
+  const prior7Rows = allRows.filter((r) => r.timestamp >= fourteenDaysAgoIso && r.timestamp < sevenDaysAgoIso);
+
+  const today = sumRow(todayRows);
+  const last7 = sumRow(last7Rows);
+  const prior7 = sumRow(prior7Rows);
+
+  const last7AvgPerDay = last7.cost / 7;
+  const trendPercent =
+    prior7.cost > 0 ? Math.round(((last7.cost - prior7.cost) / prior7.cost) * 100) : null;
+
+  const totalCost = allRows.reduce((sum, r) => sum + r.cost_estimate, 0);
+  const byFeature = {};
+  for (const row of allRows) {
+    const feature = featureForEndpoint(row.endpoint);
+    byFeature[feature] = (byFeature[feature] || 0) + row.cost_estimate;
+  }
+  const breakdown = Object.entries(byFeature).map(([feature, cost]) => ({
+    feature,
+    cost: Math.round(cost * 10000) / 10000,
+    percent: totalCost > 0 ? Math.round((cost / totalCost) * 100) : 0,
+  }));
+
+  return {
+    today: {
+      calls: today.calls,
+      tokens: today.tokens,
+      cost: Math.round(today.cost * 10000) / 10000,
+    },
+    last7Days: {
+      avgPerDay: Math.round(last7AvgPerDay * 10000) / 10000,
+      trendPercent,
+    },
+    totalCalls: allRows.length,
+    breakdown,
+  };
+}
 
 // In-memory cache, local to this running process. Replaces the v1.0m
 // filesystem cache (.cache/stories.json), which was unreliable on Railway's
@@ -90,6 +192,7 @@ Respond with ONLY your Spanish greeting/opening (2-3 sentences max). Do not incl
     });
 
     const spanish = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+    logApiCall('/api/initiate', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
     res.json({ spanish });
   } catch (error) {
     console.error('Error in /api/initiate:', error);
@@ -152,6 +255,7 @@ If the user's Spanish had no errors worth flagging, return "errors": []. Only fl
       spanish = rawText;
     }
 
+    logApiCall('/api/respond', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
     res.json({ spanish, feedback, errors });
   } catch (error) {
     console.error('Error in /api/respond:', error);
@@ -241,6 +345,7 @@ The "vocabulary" array must include an entry for EVERY distinct word that appear
       vocabulary: Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [],
     };
     cacheStory(scenario, storyData);
+    logApiCall('/api/generate-story', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
     res.json(storyData);
   } catch (error) {
     console.error('Error in /api/generate-story:', error);
@@ -331,6 +436,7 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
       matchingWords: Array.isArray(parsed.matchingWords) ? parsed.matchingWords : [],
     };
     cacheQuestions(scenario, questionsData);
+    logApiCall('/api/story-questions', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
     res.json(questionsData);
   } catch (error) {
     console.error('Error in /api/story-questions:', error);
@@ -366,6 +472,7 @@ Text: "${text}"`,
     });
 
     const translatedText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+    logApiCall('/api/translate', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
     res.json({ translated: translatedText });
   } catch (error) {
     console.error('[translate] Claude API error:', error);
@@ -374,10 +481,24 @@ Text: "${text}"`,
 });
 
 /**
+ * GET /api/usage-stats
+ * Returns aggregated Claude API usage/cost stats from the local SQLite log
+ * for the About modal (SAC-063/064).
+ */
+app.get('/api/usage-stats', (req, res) => {
+  try {
+    res.json(getUsageStats());
+  } catch (error) {
+    console.error('Error in /api/usage-stats:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch usage stats' });
+  }
+});
+
+/**
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.0w' });
+  res.json({ status: 'ok', version: '1.0x' });
 });
 
 app.listen(PORT, () => {

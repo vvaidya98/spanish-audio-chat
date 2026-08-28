@@ -35,7 +35,7 @@ export const DEFAULT_SCENARIOS = [
   },
 ]
 
-export default function ScenarioSelector({ onSelectScenario, apiError, onRetry, onBackToModes, startLabel = 'Start Conversation' }) {
+export default function ScenarioSelector({ onSelectScenario, apiError, onRetry, onBackToModes, startLabel = 'Start Conversation', skipConfirm = false }) {
   const [pendingScenario, setPendingScenario] = useState(null)
 
   const handleChooseForMe = () => {
@@ -98,7 +98,7 @@ export default function ScenarioSelector({ onSelectScenario, apiError, onRetry, 
         {DEFAULT_SCENARIOS.map((s, idx) => (
           <button
             key={idx}
-            onClick={() => setPendingScenario(s)}
+            onClick={() => (skipConfirm ? onSelectScenario(s.title) : setPendingScenario(s))}
             className="p-4 bg-surface border-2 border-border rounded-card shadow-sm hover:border-primary hover:shadow-md transition text-left"
           >
             <p className="font-bold text-ink text-heading-2">{s.title}</p>

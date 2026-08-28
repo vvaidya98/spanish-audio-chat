@@ -7,6 +7,7 @@ import TranslationView from './components/TranslationView'
 import HistoryDashboard from './components/HistoryDashboard'
 import SessionReview from './components/SessionReview'
 import FooterNav from './components/FooterNav'
+import AboutModal from './components/AboutModal'
 import { logEvent } from './analytics'
 
 function App() {
@@ -15,6 +16,19 @@ function App() {
   const [apiError, setApiError] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const [selectedSession, setSelectedSession] = useState(null)
+  const [showAboutModal, setShowAboutModal] = useState(false)
+  // SAC-058: lets Translation's "← Back" button return to wherever the user
+  // was before entering Translation, rather than always landing on the Mode
+  // Selector. Captured in handleSelectMode right before switching to
+  // 'translation'. Known limitation: if Translation was reached via a
+  // FooterNav shortcut mid-story, that shortcut already saves+ends the
+  // session before switching modes (existing, unchanged behavior) — Back
+  // reopens the same scenario (fresh load, cache-assisted) but not the exact
+  // sentence position, since there's no longer an in-progress session to
+  // resume. Exact same-spot resume without leaving the view at all is what
+  // the in-story Quick Translate modal (SAC-059/060) is for instead.
+  const [previousMode, setPreviousMode] = useState('')
+  const [previousScenario, setPreviousScenario] = useState('')
   // Points at whichever of ConversationView/ListeningStoryView is currently
   // mounted (only one ever is) — lets FooterNav trigger that view's own
   // save-then-navigate action even though its in-view Back button is gone.
@@ -25,9 +39,18 @@ function App() {
   }, [])
 
   const handleSelectMode = (selectedMode) => {
+    if (selectedMode === 'translation') {
+      setPreviousMode(mode)
+      setPreviousScenario(scenario)
+    }
     setMode(selectedMode)
     setScenario('')
     setApiError('')
+  }
+
+  const handleTranslationBack = () => {
+    setMode(previousMode)
+    setScenario(previousScenario)
   }
 
   const handleBackToModes = () => {
@@ -105,7 +128,7 @@ function App() {
     }
 
     if (mode === 'translation') {
-      return <TranslationView />
+      return <TranslationView onBack={handleTranslationBack} />
     }
 
     if (!scenario) {
@@ -116,6 +139,7 @@ function App() {
           onRetry={() => setApiError('')}
           onBackToModes={handleBackToModes}
           startLabel={mode === 'listening' ? 'Begin Story' : 'Start Conversation'}
+          skipConfirm={mode === 'listening'}
         />
       )
     }
@@ -148,7 +172,12 @@ function App() {
         <div className="bg-surface rounded-card shadow-lg p-8">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-heading-1 text-ink">Conversation Amigo</h1>
-            <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0w</span>
+            <button
+              onClick={() => setShowAboutModal(true)}
+              className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold cursor-pointer hover:bg-primary-light/70 transition"
+            >
+              v1.0x
+            </button>
           </div>
 
           {renderContent()}
@@ -161,6 +190,8 @@ function App() {
         onTranslation={handleFooterTranslation}
         onHistory={handleFooterHistory}
       />
+
+      <AboutModal isOpen={showAboutModal} onClose={() => setShowAboutModal(false)} />
     </div>
   )
 }
