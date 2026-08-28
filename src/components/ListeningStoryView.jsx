@@ -14,15 +14,42 @@ const SENTENCE_GAP_MS = 1300
 const SPEED_OPTIONS = [1.0, 0.8, 0.6, 0.4]
 const DEFAULT_RATE = 0.6
 
-// SAC-052 Clarity Mode: when enabled, sentences are spoken as segments split
-// right after each connector word, with a short pause between segments,
-// instead of as one continuous utterance. Mid-sentence pause/resume and
-// mid-sentence speed change fall back to restarting the current sentence in
-// this mode (rather than resuming from the exact word) since the existing
-// onboundary-based resume tracking only covers a single utterance — a
-// disclosed, deliberate scope trim rather than an oversight.
+// SAC-052/069 Clarity Mode: when set above "off", sentences are spoken as
+// segments split right after each connector word, with a pause between
+// segments (duration set by the selected level), instead of as one
+// continuous utterance. Mid-sentence pause/resume and mid-sentence speed
+// change fall back to restarting the current sentence in this mode (rather
+// than resuming from the exact word) since the existing onboundary-based
+// resume tracking only covers a single utterance — a disclosed, deliberate
+// scope trim rather than an oversight.
 const CLARITY_CONNECTORS = ['y', 'pero', 'porque', 'cuando', 'mientras', 'si']
-const CLARITY_PAUSE_MS = 130
+const CLARITY_LEVELS = ['off', 'low', 'medium', 'high', 'ultra']
+const CLARITY_PAUSE_MS = { off: 0, low: 80, medium: 130, high: 180, ultra: 250 }
+const DEFAULT_CLARITY_LEVEL = 'off'
+
+// SAC-048 hardening: sessionStorage key for "has this scenario's Play button
+// already been used/dismissed in this tab" — survives a full page reload
+// (dev-server restart, manual refresh) without surviving to a genuinely new
+// tab/session, keeping "story loads -> pulses" honest for an actual fresh
+// visit while not re-pulsing on a reload of the same in-progress story.
+const playedStorageKey = (scenario) => `listening_played:${scenario}`
+
+function hasAlreadyPlayed(scenario) {
+  try {
+    return sessionStorage.getItem(playedStorageKey(scenario)) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function markAsPlayed(scenario) {
+  try {
+    sessionStorage.setItem(playedStorageKey(scenario), 'true')
+  } catch {
+    // Storage unavailable (private mode, etc.) — isFirstLoad still works via
+    // component state, it just won't survive a reload in that case.
+  }
+}
 
 function splitByConnectors(text) {
   const words = text.split(' ')
@@ -66,12 +93,16 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   const [showEnglish, setShowEnglish] = useState(false)
   // SAC-048: pulses the Play button until the user's first real interaction
   // with it, since removing "Tap to Begin" (v1.0t) means there's no longer
-  // an unmissable prompt telling a first-time user where to start.
-  const [isFirstLoad, setIsFirstLoad] = useState(true)
-  // SAC-052: Clarity Mode toggle. Default OFF, mirrored into a ref so the
-  // async speak chain always reads the current value (toggling mid-playback
-  // applies starting with the next sentence, not the one already speaking).
-  const [clarityMode, setClarityMode] = useState(false)
+  // an unmissable prompt telling a first-time user where to start. Lazily
+  // initialized from sessionStorage (see markAsPlayed/hasAlreadyPlayed above)
+  // so a page reload mid-story doesn't bring the pulse back for a story
+  // whose Play button the user already found.
+  const [isFirstLoad, setIsFirstLoad] = useState(() => !hasAlreadyPlayed(scenario))
+  // SAC-052/069: Clarity Mode level (off/low/medium/high/ultra). Default off,
+  // mirrored into a ref so the async speak chain always reads the current
+  // value (changing level mid-playback applies starting with the next
+  // sentence, not the one already speaking).
+  const [clarityLevel, setClarityLevel] = useState(DEFAULT_CLARITY_LEVEL)
   // SAC-059/060: Quick Translate modal, opened without pausing playback.
   const [showQuickTranslate, setShowQuickTranslate] = useState(false)
   // SAC-065: confirmation gate in front of Regenerate Story.
@@ -80,7 +111,7 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   const synthRef = useRef(null)
   const indexRef = useRef(0)
   const rateRef = useRef(DEFAULT_RATE)
-  const clarityModeRef = useRef(false)
+  const clarityLevelRef = useRef(DEFAULT_CLARITY_LEVEL)
   const pausedRef = useRef(false)
   const pauseContextRef = useRef(null) // 'mid-sentence' | 'gap'
   const gapTimeoutRef = useRef(null)
@@ -186,12 +217,12 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     }, SENTENCE_GAP_MS)
   }
 
-  // Clarity Mode's chained per-segment playback (SAC-052). Recurses through
-  // `segments`, pausing CLARITY_PAUSE_MS between each, then hands off to the
-  // normal handleSentenceUtteranceEnd once the last segment finishes — so
-  // auto-advance/gap timing downstream is unaffected by how many segments a
-  // sentence was broken into.
-  const speakClaritySegment = (idx, segments, segIdx) => {
+  // Clarity Mode's chained per-segment playback (SAC-052/069). Recurses
+  // through `segments`, pausing `pauseMs` (set by the selected level) between
+  // each, then hands off to the normal handleSentenceUtteranceEnd once the
+  // last segment finishes — so auto-advance/gap timing downstream is
+  // unaffected by how many segments a sentence was broken into.
+  const speakClaritySegment = (idx, segments, segIdx, pauseMs) => {
     if (segIdx >= segments.length) {
       handleSentenceUtteranceEnd(idx)
       return
@@ -206,12 +237,12 @@ function ListeningStoryView({ scenario, onBack }, ref) {
       if (token !== utteranceTokenRef.current) return
       setTimeout(() => {
         if (token !== utteranceTokenRef.current) return
-        speakClaritySegment(idx, segments, segIdx + 1)
-      }, CLARITY_PAUSE_MS)
+        speakClaritySegment(idx, segments, segIdx + 1, pauseMs)
+      }, pauseMs)
     }
     utterance.onerror = () => {
       if (token !== utteranceTokenRef.current) return
-      speakClaritySegment(idx, segments, segIdx + 1)
+      speakClaritySegment(idx, segments, segIdx + 1, pauseMs)
     }
 
     synthRef.current.cancel()
@@ -234,10 +265,10 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     speakOffsetRef.current = 0
     lastWordCharIndexRef.current = 0
 
-    if (clarityModeRef.current) {
+    if (clarityLevelRef.current !== 'off') {
       const segments = splitByConnectors(sentences[idx].spanish)
       if (segments.length > 1) {
-        speakClaritySegment(idx, segments, 0)
+        speakClaritySegment(idx, segments, 0, CLARITY_PAUSE_MS[clarityLevelRef.current])
         return
       }
     }
@@ -328,6 +359,7 @@ function ListeningStoryView({ scenario, onBack }, ref) {
     // No pulse after a regenerate — by this point the user has already
     // found and used the controls at least once (they clicked Regenerate).
     setIsFirstLoad(false)
+    markAsPlayed(scenario)
 
     loadStory(() => false, true)
   }
@@ -340,6 +372,7 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   const handlePlayPause = () => {
     if (playStatus === 'idle') {
       setIsFirstLoad(false)
+      markAsPlayed(scenario)
       manualNavRef.current = false
       speakSentenceAt(indexRef.current)
     } else if (playStatus === 'playing') {
@@ -392,9 +425,9 @@ function ListeningStoryView({ scenario, onBack }, ref) {
   const handleNextSentence = () => manualNavigateTo(Math.min(sentencesRef.current.length - 1, indexRef.current + 1))
   const handleJumpToEnd = () => manualNavigateTo(sentencesRef.current.length - 1)
 
-  const handleClarityModeChange = (checked) => {
-    setClarityMode(checked)
-    clarityModeRef.current = checked
+  const handleClarityLevelChange = (level) => {
+    setClarityLevel(level)
+    clarityLevelRef.current = level
   }
 
   const handleSpeedChange = (newRate) => {
@@ -797,7 +830,7 @@ function ListeningStoryView({ scenario, onBack }, ref) {
 
             {/* SAC-057: subtle, thumb-friendly zone — compact, low-contrast,
                 deliberately not competing visually with the controls above. */}
-            <div className="flex items-center justify-center gap-4 mt-2 pt-2 border-t border-border">
+            <div className="flex items-center flex-wrap justify-center gap-x-4 gap-y-1 mt-2 pt-2 border-t border-border">
               <label className="flex items-center gap-1.5 text-xs text-ink-faint">
                 Speed:
                 <select
@@ -812,13 +845,19 @@ function ListeningStoryView({ scenario, onBack }, ref) {
                   ))}
                 </select>
               </label>
-              <label className="flex items-center gap-1.5 text-xs text-ink-faint cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={clarityMode}
-                  onChange={(e) => handleClarityModeChange(e.target.checked)}
-                />
-                Clarity Mode
+              <label className="flex items-center gap-1.5 text-xs text-ink-faint">
+                Clarity Mode:
+                <select
+                  value={clarityLevel}
+                  onChange={(e) => handleClarityLevelChange(e.target.value)}
+                  className="text-xs text-ink-faint bg-transparent border border-border rounded-control px-1.5 py-0.5 focus:outline-none"
+                >
+                  {CLARITY_LEVELS.map((level) => (
+                    <option key={level} value={level}>
+                      {level.charAt(0).toUpperCase() + level.slice(1)}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
           </div>
