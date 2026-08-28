@@ -13,6 +13,14 @@ export default function ModeSelector({ onSelectMode }) {
         </button>
 
         <button
+          onClick={() => onSelectMode('translation')}
+          className="p-6 bg-surface border-2 border-border rounded-card shadow-sm hover:border-primary hover:shadow-md transition text-left"
+        >
+          <p className="font-bold text-ink text-heading-2 mb-1">🌐 Translation</p>
+          <p className="text-ink-muted text-small">Translate between Spanish and English</p>
+        </button>
+
+        <button
           disabled
           className="p-6 bg-surface border-2 border-border rounded-card text-left opacity-50 cursor-not-allowed"
         >

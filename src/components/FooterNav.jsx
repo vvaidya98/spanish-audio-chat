@@ -1,12 +1,16 @@
+// Conversation Mode is disabled app-wide (SAC-038, ModeSelector.jsx) — this
+// footer shortcut mirrors that same disabled state rather than linking
+// somewhere dead. Re-enable both together once Conversation Mode ships.
 const ITEMS = [
   { key: 'home', icon: '🏠', label: 'Home' },
-  { key: 'topics', icon: '🎯', label: 'Topics' },
-  { key: 'back', icon: '←', label: 'Back' },
+  { key: 'listening', icon: '🎧', label: 'Listening' },
+  { key: 'conversation', icon: '💬', label: 'Conversation', disabled: true },
+  { key: 'translation', icon: '🌐', label: 'Translation' },
   { key: 'history', icon: '📊', label: 'History' },
 ]
 
-export default function FooterNav({ onHome, onTopics, onBack, onHistory }) {
-  const handlers = { home: onHome, topics: onTopics, back: onBack, history: onHistory }
+export default function FooterNav({ onHome, onListening, onTranslation, onHistory }) {
+  const handlers = { home: onHome, listening: onListening, translation: onTranslation, history: onHistory }
 
   return (
     <nav
@@ -17,7 +21,8 @@ export default function FooterNav({ onHome, onTopics, onBack, onHistory }) {
         <button
           key={item.key}
           onClick={handlers[item.key]}
-          className="flex-1 min-h-[60px] flex flex-col items-center justify-center gap-0.5 text-ink-muted hover:text-primary hover:bg-primary-light transition"
+          disabled={item.disabled}
+          className="flex-1 min-h-[60px] flex flex-col items-center justify-center gap-0.5 text-ink-muted hover:text-primary hover:bg-primary-light transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-ink-muted"
         >
           <span className="text-xl leading-none" aria-hidden="true">{item.icon}</span>
           <span className="text-[10px] font-semibold">{item.label}</span>

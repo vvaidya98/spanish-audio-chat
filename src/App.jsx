@@ -3,13 +3,14 @@ import ModeSelector from './components/ModeSelector'
 import ScenarioSelector from './components/ScenarioSelector'
 import ConversationView from './components/ConversationView'
 import ListeningStoryView from './components/ListeningStoryView'
+import TranslationView from './components/TranslationView'
 import HistoryDashboard from './components/HistoryDashboard'
 import SessionReview from './components/SessionReview'
 import FooterNav from './components/FooterNav'
 import { logEvent } from './analytics'
 
 function App() {
-  const [mode, setMode] = useState('') // '', 'conversation', 'listening'
+  const [mode, setMode] = useState('') // '', 'conversation', 'listening', 'translation'
   const [scenario, setScenario] = useState('')
   const [apiError, setApiError] = useState('')
   const [showHistory, setShowHistory] = useState(false)
@@ -50,32 +51,31 @@ function App() {
     setScenario('')
   }
 
-  const handleFooterBack = () => {
-    if (showHistory) {
-      if (selectedSession) { setSelectedSession(null); return }
-      setShowHistory(false)
-      return
-    }
-    if (activeViewRef.current?.back) { activeViewRef.current.back(); return }
-    if (mode) { handleBackToModes(); return }
-  }
-
   // "Home" always goes all the way back to the Mode Selector, regardless of
-  // how deep the user is (active story, scenario picker, or history) —
-  // distinct from "Topics"/"Back", which only step back one screen at a
-  // time. No early return after activeViewRef.current.back(): that call's
-  // job is just to save the in-progress session before leaving, not to
-  // decide where Home lands — handleBackToModes() below always still runs.
+  // how deep the user is (active story, scenario picker, or history). No
+  // early return after activeViewRef.current.back(): that call's job is
+  // just to save the in-progress session before leaving, not to decide
+  // where Home lands — handleBackToModes() below always still runs.
   const handleFooterHome = () => {
     if (showHistory) { setShowHistory(false); setSelectedSession(null) }
     if (activeViewRef.current?.back) activeViewRef.current.back()
     handleBackToModes()
   }
 
-  const handleFooterTopics = () => {
+  // Shortcuts (SAC-050): jump straight into a mode from anywhere, skipping
+  // the Mode Selector, same no-early-return shape as Home above so any
+  // in-progress session still gets saved on the way out regardless of
+  // where the user currently is.
+  const handleFooterListening = () => {
     if (showHistory) { setShowHistory(false); setSelectedSession(null) }
-    if (activeViewRef.current?.back) { activeViewRef.current.back(); return }
-    if (mode) handleReset()
+    if (activeViewRef.current?.back) activeViewRef.current.back()
+    handleSelectMode('listening')
+  }
+
+  const handleFooterTranslation = () => {
+    if (showHistory) { setShowHistory(false); setSelectedSession(null) }
+    if (activeViewRef.current?.back) activeViewRef.current.back()
+    handleSelectMode('translation')
   }
 
   const handleFooterHistory = () => {
@@ -102,6 +102,10 @@ function App() {
 
     if (!mode) {
       return <ModeSelector onSelectMode={handleSelectMode} />
+    }
+
+    if (mode === 'translation') {
+      return <TranslationView />
     }
 
     if (!scenario) {
@@ -144,7 +148,7 @@ function App() {
         <div className="bg-surface rounded-card shadow-lg p-8">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-heading-1 text-ink">Conversation Amigo</h1>
-            <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0u</span>
+            <span className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold">v1.0w</span>
           </div>
 
           {renderContent()}
@@ -153,8 +157,8 @@ function App() {
 
       <FooterNav
         onHome={handleFooterHome}
-        onTopics={handleFooterTopics}
-        onBack={handleFooterBack}
+        onListening={handleFooterListening}
+        onTranslation={handleFooterTranslation}
         onHistory={handleFooterHistory}
       />
     </div>

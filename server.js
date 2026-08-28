@@ -341,10 +341,43 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
 });
 
 /**
+ * POST /api/translate
+ * Bidirectional Spanish <-> English translation for the Translation tool.
+ */
+app.post('/api/translate', async (req, res) => {
+  const { text, sourceLanguage, targetLanguage } = req.body;
+
+  if (!text || !sourceLanguage || !targetLanguage) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  try {
+    const message = await client.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 1024,
+      messages: [
+        {
+          role: 'user',
+          content: `Translate the following ${sourceLanguage} text to ${targetLanguage}. Return ONLY the translation, nothing else.
+
+Text: "${text}"`,
+        },
+      ],
+    });
+
+    const translatedText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+    res.json({ translated: translatedText });
+  } catch (error) {
+    console.error('[translate] Claude API error:', error);
+    res.status(500).json({ error: error.message || 'Translation failed' });
+  }
+});
+
+/**
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.0u' });
+  res.json({ status: 'ok', version: '1.0w' });
 });
 
 app.listen(PORT, () => {
