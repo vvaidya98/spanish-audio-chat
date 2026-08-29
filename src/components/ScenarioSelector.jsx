@@ -129,8 +129,10 @@ export default function ScenarioSelector({
               onClick={() => (skipConfirm ? onSelectScenario(s.title) : setPendingScenario(s))}
               className="p-4 bg-surface border-2 border-border rounded-card shadow-sm hover:border-primary hover:shadow-md transition text-left"
             >
-              <span className="text-xl mb-1 block">{s.emoji}</span>
-              <p className="font-bold text-ink text-heading-2">{s.title}</p>
+              {/* SAC-085: inline with the title (matching the story header's
+                  own inline treatment), not a separate block-level line
+                  above it like the original SAC-083 layout had. */}
+              <p className="font-bold text-ink text-heading-2">{s.emoji} {s.title}</p>
               <p className="text-ink-muted text-small mt-1">{s.context}</p>
             </button>
           ))
@@ -143,8 +145,8 @@ export default function ScenarioSelector({
                 onClick={() => setShowCustomForm(true)}
                 className="p-4 bg-primary-light border-2 border-primary rounded-card shadow-sm hover:shadow-md transition text-left"
               >
-                <span className="text-xl mb-1 block">✨</span>
-                <p className="font-bold text-ink text-heading-2">Create Custom Topic</p>
+                {/* SAC-085: inline, matching the other cards in this grid. */}
+                <p className="font-bold text-ink text-heading-2">✨ Create Custom Topic</p>
                 <p className="text-ink-muted text-small mt-1">Build your own story on any topic</p>
               </button>
             )

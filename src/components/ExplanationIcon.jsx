@@ -32,12 +32,15 @@ export function ExplanationIcon({ explanation, isOpen, onClick, className = '' }
 // coding for the Display Spanish block — applied here rather than only at
 // that one call site, so the same content reads consistently (green =
 // grammar) everywhere it appears, including the Transcript's own ⓘ icons.
+// SAC-085: 💡 prefix added directly here (not at each call site) so both
+// this and ExplanationLoading below carry the same marker consistently.
 export function ExplanationPanel({ explanation }) {
   if (!explanation) return null
 
   return (
     <div className="mt-1 bg-success-light border border-border rounded-control px-3 py-2 text-small text-ink">
       <p className="mb-1.5">
+        <span className="mr-1">💡</span>
         <span className="font-semibold text-success">&ldquo;{explanation.phrase}&rdquo;</span>
         {' — '}
         <span className="text-ink-muted">{explanation.literalTranslation}</span>
@@ -50,6 +53,25 @@ export function ExplanationPanel({ explanation }) {
         <span className="font-semibold text-ink">Pattern: </span>
         {explanation.pattern}
       </p>
+    </div>
+  )
+}
+
+// SAC-085: shown in place of ExplanationPanel the instant the Grammar
+// checkbox is checked, before its sentence's explanation has actually
+// finished generating in the background — same size/color/shape as the
+// real panel so there's no layout jump when the content swaps in, rather
+// than the box simply not existing yet (SAC-083's behavior, which gave no
+// indication anything was coming). Only used at the Display Spanish call
+// site — the Transcript's ⓘ icon stays disabled-until-ready instead of
+// ever showing this, since a whole list of "Loading…" boxes for sentences
+// nobody has asked about yet would be far noisier than one small disabled
+// icon per row.
+export function ExplanationLoading() {
+  return (
+    <div className="mt-1 bg-success-light border border-border rounded-control px-3 py-2 text-small text-ink-muted">
+      <span className="mr-1">💡</span>
+      Loading explanation…
     </div>
   )
 }

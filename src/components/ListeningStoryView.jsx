@@ -5,7 +5,7 @@ import EmailCapture from './EmailCapture'
 import LoadingSpinner from './LoadingSpinner'
 import QuickTranslateModal from './QuickTranslateModal'
 import RegenerateModal from './RegenerateModal'
-import { ExplanationIcon, ExplanationPanel } from './ExplanationIcon'
+import { ExplanationIcon, ExplanationPanel, ExplanationLoading } from './ExplanationIcon'
 import { getScenarioEmoji } from './ScenarioSelector'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
@@ -954,7 +954,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
               <div className="mt-2 bg-info-light border border-border rounded-control p-3">
                 <div className="flex items-start gap-2">
                   <div className="flex items-start gap-1.5 flex-1">
-                    <span className="text-body font-bold text-ink shrink-0">{currentIndex + 1}.</span>
+                    <span className="text-body font-bold text-ink shrink-0">🇪🇸 {currentIndex + 1}.</span>
                     <HoverableText
                       text={currentSentence.spanish}
                       vocabulary={storyVocabMap}
@@ -976,13 +976,20 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
             {showEnglish && currentSentence && (
               <div className="mt-2 bg-warn-light border border-border rounded-control p-3">
                 <p className="text-small text-ink-muted">
-                  {currentIndex + 1}. {currentSentence.english}
+                  🇬🇧 {currentIndex + 1}. {currentSentence.english}
                 </p>
               </div>
             )}
 
-            {showGrammar && sentenceExplanations[currentIndex] && (
-              <ExplanationPanel explanation={sentenceExplanations[currentIndex]} />
+            {/* SAC-085: the box now appears the instant Grammar is checked
+                (as a loading placeholder, same size/color/shape as the real
+                panel) rather than staying absent until the background fetch
+                resolves — a visible sign something is coming, not just
+                silence. */}
+            {showGrammar && (
+              sentenceExplanations[currentIndex]
+                ? <ExplanationPanel explanation={sentenceExplanations[currentIndex]} />
+                : <ExplanationLoading />
             )}
           </div>
 
