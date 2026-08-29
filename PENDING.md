@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (Prompts #047/#048, SAC-087 Vocabulary Preview shipped as v1.2i)
+## Last updated: 2026-08-29 (Prompt #050, SAC-087/089 Refinements shipped as v1.2j)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -558,6 +558,16 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Real bug caught by testing, fixed before shipping:** the background bulk fetch's staleness was originally tied to a `useEffect` cleanup that also re-ran on every `playStatus` change — pausing briefly right after Play silently discarded the in-flight fetch's result. Fixed with a story-scoped generation ref instead of a playStatus-scoped one.
 - **Fifth consecutive SAC-ID collision** — renumbered the parked CDN-cleanup idea from SAC-087 to SAC-088.
 - Version bumped to v1.2i.
+
+### Shipped in v1.2j — Prompt #050, SAC-087/089 (Comprehensive Refinements)
+- **Critical Questions checked against real code first:** vocabulary endpoint's `english` field already existed (no change needed); the given scenario order/ID list was substantially wrong (different order, missing a scenario, no `id` field exists at all — scenarios are identified by `title`) — built against the real `DEFAULT_SCENARIOS` array instead; no prior SAC-089 story-navigation feature ever existed (checked `git log` + full grep) despite the prompt's framing implying one did.
+- **Change 1 (checkbox defaults):** already correct since v1.2i, no code change needed.
+- **Change 2 (Vocabulary Preview redesign):** horizontal dot-separated word list, click to reveal one word's English translation at a time (closes any previously-open one). Hard words bold, moderate normal weight.
+- **Change 3 (icon repositioning):** 🔊/🇪🇸 moved to a stacked left-margin column, freeing the Spanish text's full row width to wrap into — verified via screenshot.
+- **Change 4 (real scenario navigation, SAC-089):** new "← Previous Topic"/"Next Topic →" buttons cycle through the real 8 pre-built scenarios by title, disabled at the boundaries, correctly disabled/hidden for custom topics. Reuses the existing scenario-select-and-remount flow, so all per-story state resets for free.
+- **🚩 Flagged, not resolved:** the round's testing checklist says scenario navigation should reset checkboxes to unchecked — this conflicts with SAC-081's established `localStorage` persistence. Chose to preserve persistence rather than guess; confirm with Vinay whether Previous/Next Topic should be a deliberate exception.
+- **Change 5 (S1 loading investigation):** added `[Timing]` console logs, reproduced the reported symptom, and confirmed it's not a bug — Phase 1 genuinely takes ~2.5-3s, Phase 2 genuinely takes ~9-12s (real API latency), exactly the tradeoff the original hybrid-loading spec (Prompt #048) anticipated. Data is confirmed reaching state correctly, nothing is silently lost.
+- Version bumped to v1.2j.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

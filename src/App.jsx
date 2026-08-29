@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import ModeSelector from './components/ModeSelector'
-import ScenarioSelector from './components/ScenarioSelector'
+import ScenarioSelector, { DEFAULT_SCENARIOS } from './components/ScenarioSelector'
 import ConversationView from './components/ConversationView'
 import ListeningStoryView from './components/ListeningStoryView'
 import TranslationView from './components/TranslationView'
@@ -166,6 +166,11 @@ function App() {
     }
 
     if (mode === 'listening') {
+      // SAC-089 (Prompt #050): -1 for a custom topic (not part of
+      // DEFAULT_SCENARIOS at all) or any other unmatched title — both
+      // Previous/Next callbacks below naturally end up undefined in that
+      // case, same as being at either end of the pre-built list.
+      const scenarioIdx = DEFAULT_SCENARIOS.findIndex((s) => s.title === scenario)
       return (
         <ListeningStoryView
           key={customSession ? `custom-${customSession.nonce}` : scenario}
@@ -174,6 +179,14 @@ function App() {
           storyData={customSession?.storyData}
           customDifficulty={customSession?.difficulty}
           onBack={handleReset}
+          onPreviousScenario={
+            scenarioIdx > 0 ? () => handleSelectScenario(DEFAULT_SCENARIOS[scenarioIdx - 1].title) : undefined
+          }
+          onNextScenario={
+            scenarioIdx !== -1 && scenarioIdx < DEFAULT_SCENARIOS.length - 1
+              ? () => handleSelectScenario(DEFAULT_SCENARIOS[scenarioIdx + 1].title)
+              : undefined
+          }
         />
       )
     }
@@ -199,7 +212,7 @@ function App() {
               onClick={() => setShowAboutModal(true)}
               className="text-xs text-ink-faint hover:text-ink-muted transition"
             >
-              v1.2i
+              v1.2j
             </button>
           </div>
 

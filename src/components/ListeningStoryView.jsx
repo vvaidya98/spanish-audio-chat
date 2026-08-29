@@ -76,6 +76,16 @@ function splitByConnectors(text) {
   return { segments, connectors }
 }
 
+// SAC-089 (Prompt #050): hard words first (up to 5), then moderate words
+// filling any remaining slots — a frontend safety cap regardless of what
+// the backend actually returned, since /api/generate-vocabulary-preview's
+// prompt asks Claude for "0-5 words" but doesn't structurally guarantee it.
+function selectVocabularyPreviewWords(words) {
+  const hardWords = words.filter((w) => w.difficulty === 'hard').slice(0, 5)
+  const moderateWords = words.filter((w) => w.difficulty === 'moderate').slice(0, 5 - hardWords.length)
+  return [...hardWords, ...moderateWords]
+}
+
 // SAC-084: "y" always gets its own always-red dot regardless of the current
 // Clarity level — it's a far more frequent, comma-like pause than the other
 // connector words ("porque"/"mientras"/etc.), so calling it out distinctly
@@ -98,7 +108,7 @@ function splitByConnectors(text) {
 // isCustomRef/storyDataRef, is mutable for the life of the component —
 // RegenerateModal's difficulty picker updates it for both pre-built and
 // custom sessions alike.
-function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, ref) {
+function ListeningStoryView({ scenario, storyData, customDifficulty, onBack, onPreviousScenario, onNextScenario }, ref) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [story, setStory] = useState(null)
@@ -220,6 +230,12 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // explanationsFailed just above, for the Vocabulary Preview checkbox.
   const [vocabularyPreview, setVocabularyPreview] = useState({})
   const [vocabularyPreviewFailed, setVocabularyPreviewFailed] = useState(false)
+  // SAC-089 (Prompt #050): which single vocabulary word (if any) currently
+  // has its English translation expanded — a single nullable value, not a
+  // per-word map, so clicking a second word closes the first rather than
+  // stacking translations (same "only one open at a time" pattern this
+  // file already uses for openTranslationIdx/openExplanationIdx below).
+  const [expandedVocabWord, setExpandedVocabWord] = useState(null)
   // Guards the hybrid loading strategy's second phase (see the effects
   // below) so the bulk sentences-1..N fetch fires exactly once per story,
   // the first time playback starts — not again on every subsequent
@@ -301,7 +317,23 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // sequential auto-advance.
   const manualNavRef = useRef(false)
 
+  // SAC-089 (Prompt #050): closes any expanded vocabulary word's
+  // translation the moment the current sentence changes — otherwise a
+  // translation left open on one sentence would still show, now
+  // mislabeled, on whatever sentence comes next.
   useEffect(() => {
+    setExpandedVocabWord(null)
+  }, [currentIndex])
+
+  useEffect(() => {
+    // SAC-089 (Prompt #050): scrolls to the top on every fresh mount of
+    // this view — covers both a normal scenario pick from the grid and
+    // Previous/Next Topic navigation (both go through App.jsx's
+    // key={scenario} remount), so switching topics doesn't leave the
+    // page scrolled to wherever the user was mid-story on the previous
+    // one. Regenerate doesn't remount this component (see loadStory's
+    // regenerate branch below), so it's correctly unaffected.
+    window.scrollTo(0, 0)
     synthRef.current = window.speechSynthesis
     let stale = false
     loadStory(() => stale)
@@ -510,12 +542,25 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     storyGenerationRef.current += 1
 
     const firstSentence = [story.sentences[0].spanish]
+    // SAC-087/089 (Prompt #050): timing log to diagnose reported "S1 still
+    // shows Loading" behavior — measures wall-clock time from story load to
+    // Phase 1's fetch actually resolving. Investigation finding (Prompt
+    // #050): confirmed via direct testing that the state IS applied
+    // correctly the moment this resolves — the "Loading" a fast/impatient
+    // navigator sees isn't a bug, it's this fetch genuinely still being
+    // in-flight (~2.5-3s for one sentence) at the moment they looked, or —
+    // for sentence 2 onward — Phase 2's real ~9-12s API latency for the
+    // rest of the story, exactly the "S2-S10 ready OR LOADING when user
+    // navigates" tradeoff the hybrid strategy's own spec (Prompt #048)
+    // explicitly anticipated.
+    const phase1Start = Date.now()
 
     ;(async () => {
       const [explResult, vocabResult] = await Promise.allSettled([
         fetchExplanationsSlice(firstSentence, 0),
         fetchVocabularyPreviewSlice(firstSentence, 0),
       ])
+      console.log(`[Timing] Phase 1 (sentence 1) fetch completed after ${Date.now() - phase1Start}ms`)
       if (stale) return
       if (explResult.status === 'fulfilled') {
         setSentenceExplanations((prev) => ({ ...prev, ...explResult.value }))
@@ -562,12 +607,15 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     const myGeneration = storyGenerationRef.current
 
     const restSentences = story.sentences.slice(1).map((s) => s.spanish)
+    const phase2Start = Date.now()
+    console.log(`[Timing] Phase 2 (sentences 2-${story.sentences.length}) fetch started, playStatus just became 'playing'`)
 
     ;(async () => {
       const [explResult, vocabResult] = await Promise.allSettled([
         fetchExplanationsSlice(restSentences, 1),
         fetchVocabularyPreviewSlice(restSentences, 1),
       ])
+      console.log(`[Timing] Phase 2 (sentences 2-${story.sentences.length}) fetch completed after ${Date.now() - phase2Start}ms`)
       if (storyGenerationRef.current !== myGeneration) return
       if (explResult.status === 'fulfilled') {
         setSentenceExplanations((prev) => ({ ...prev, ...explResult.value }))
@@ -1152,22 +1200,48 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                 mirror the Grammar block's ExplanationLoading pattern but
                 inlined here rather than extracted into a shared component,
                 since (unlike Grammar's panel) there's only this one call
-                site so far — no Transcript equivalent was asked for. */}
+                site so far — no Transcript equivalent was asked for.
+                SAC-089 (Prompt #050) redesign: words now render horizontally
+                in one dot-separated line (hard words bold, moderate normal
+                weight) instead of a bulleted list with English shown for
+                every word up front — a click reveals just that one word's
+                translation beneath the line (closing any previously-open
+                one, matching this file's existing single-nullable-index
+                pattern), minimizing vertical space until a user actually
+                wants a specific translation. */}
             {showVocabularyPreview && currentSentence && (
               <div className="mt-2 bg-secondary-light border border-border rounded-control p-3">
                 <p className="text-small font-semibold text-ink mb-1">📖 Vocabulary Preview</p>
                 {vocabularyPreview[currentIndex] ? (
-                  vocabularyPreview[currentIndex].words.length > 0 ? (
-                    <ul className="text-small text-ink-muted space-y-0.5">
-                      {vocabularyPreview[currentIndex].words.map((w, i) => (
-                        <li key={i}>
-                          <span className="font-semibold text-ink">{w.word}</span> — {w.english}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-small text-ink-muted">No especially tricky words in this sentence.</p>
-                  )
+                  (() => {
+                    const displayWords = selectVocabularyPreviewWords(vocabularyPreview[currentIndex].words)
+                    if (displayWords.length === 0) {
+                      return <p className="text-small text-ink-muted">No especially tricky words in this sentence.</p>
+                    }
+                    const expanded = displayWords.find((w) => w.word === expandedVocabWord)
+                    return (
+                      <>
+                        <p className="text-small text-ink-muted">
+                          {displayWords.map((w, i) => (
+                            <span key={w.word}>
+                              <button
+                                onClick={() => setExpandedVocabWord((prev) => (prev === w.word ? null : w.word))}
+                                className={`${w.difficulty === 'hard' ? 'font-bold' : 'font-normal'} text-ink hover:text-primary transition`}
+                              >
+                                {w.word}
+                              </button>
+                              {i < displayWords.length - 1 && <span className="text-ink-faint"> • </span>}
+                            </span>
+                          ))}
+                        </p>
+                        {expanded && (
+                          <p className="text-small text-ink-muted mt-1">
+                            {expanded.word} → {expanded.english}
+                          </p>
+                        )}
+                      </>
+                    )
+                  })()
                 ) : (
                   <p className="text-small text-ink-muted">
                     {vocabularyPreviewFailed ? 'Vocabulary preview unavailable right now.' : 'Loading vocabulary preview…'}
@@ -1178,9 +1252,26 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
 
             {showSpanish && currentSentence && (
               <div className="mt-2 bg-info-light border border-border rounded-control p-3">
+                {/* SAC-089 (Prompt #050): 🔊/🇪🇸 stacked vertically in a left
+                    margin column instead of sitting inline before the text —
+                    the old "🇪🇸 1." prefix plus a same-row 🔊 button on the
+                    right both ate into the line's usable width, forcing
+                    earlier wraps at narrow (390px) widths. Moving both to
+                    their own column gives the Spanish text the full
+                    remaining width to wrap into. */}
                 <div className="flex items-start gap-2">
-                  <div className="flex items-start gap-1.5 flex-1">
-                    <span className="text-body font-bold text-ink shrink-0">🇪🇸 {currentIndex + 1}.</span>
+                  <div className="flex flex-col items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => playTranscriptSentence(currentIndex)}
+                      title="Replay this sentence"
+                      className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg rounded-control text-ink-faint hover:text-primary hover:bg-primary-light transition"
+                    >
+                      🔊
+                    </button>
+                    <span className="text-lg leading-none" aria-hidden="true">🇪🇸</span>
+                  </div>
+                  <div className="flex items-start gap-1.5 flex-1 pt-2.5">
+                    <span className="text-body font-bold text-ink shrink-0">{currentIndex + 1}.</span>
                     <HoverableText
                       text={currentSentence.spanish}
                       vocabulary={storyVocabMap}
@@ -1188,13 +1279,6 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                       showHoverTranslation={false}
                     />
                   </div>
-                  <button
-                    onClick={() => playTranscriptSentence(currentIndex)}
-                    title="Replay this sentence"
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg shrink-0 rounded-control text-ink-faint hover:text-primary hover:bg-primary-light transition"
-                  >
-                    🔊
-                  </button>
                 </div>
                 {/* SAC-084-Simplify: the dot/dash indicator row (and
                     clarityMarkStyle/clarityIndicators) was removed this
@@ -1496,6 +1580,40 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                 className="min-w-[32px] min-h-[32px] flex items-center justify-center text-base text-ink-muted hover:text-ink transition"
               >
                 🔄
+              </button>
+            </div>
+
+            {/* SAC-089 (Prompt #050): cycles between pre-built SCENARIOS
+                (topics) — e.g. "Ordering at a Restaurant" → "Going
+                Shopping" — not between regenerated stories within the same
+                scenario, which Regenerate above already covers. App.jsx
+                owns the index math (DEFAULT_SCENARIOS order) and only
+                passes a callback down when that direction is valid, so
+                disabled-at-boundary and "not applicable to a custom topic"
+                (not part of DEFAULT_SCENARIOS at all) are both just
+                "prop is undefined" from this component's point of view —
+                no scenario-list knowledge needed here. Switching scenario
+                reuses the same handleSelectScenario→setScenario flow as
+                picking one from the picker grid, which (via App.jsx's
+                existing key={scenario} on this component) forces a full
+                remount — every checkbox, playback position, and piece of
+                per-story state resets for free, the same way Regenerate's
+                key change already does, rather than needing to manually
+                reset each one here. */}
+            <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-border">
+              <button
+                onClick={onPreviousScenario}
+                disabled={!onPreviousScenario}
+                className="min-h-[44px] px-3 text-small text-ink-muted hover:text-ink disabled:opacity-30 disabled:pointer-events-none transition"
+              >
+                ← Previous Topic
+              </button>
+              <button
+                onClick={onNextScenario}
+                disabled={!onNextScenario}
+                className="min-h-[44px] px-3 text-small text-ink-muted hover:text-ink disabled:opacity-30 disabled:pointer-events-none transition"
+              >
+                Next Topic →
               </button>
             </div>
           </div>
