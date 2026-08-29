@@ -86,14 +86,6 @@ function splitByConnectors(text) {
 // palette since this app's extended token set has no equivalent for either
 // (extending Tailwind's theme doesn't remove its defaults, so these are
 // still real, valid utility classes, not a hardcoded hex value).
-function clarityMarkStyle({ connector, level }) {
-  if (connector === 'y') return { shape: 'dot', colorClass: 'bg-danger' }
-  if (level === 'medium') return { shape: 'dot', colorClass: 'bg-yellow-500' }
-  if (level === 'high') return { shape: 'dash', colorClass: 'bg-orange-500' }
-  if (level === 'ultra') return { shape: 'double-dash', colorClass: 'bg-danger' }
-  return { shape: 'dot', colorClass: 'bg-ink-faint' } // low, and any fallback
-}
-
 // SAC-071: storyData/customDifficulty are only present for a custom topic
 // (handed down from CustomTopicForm via App.jsx) — for a pre-built scenario
 // both are undefined and every existing code path is untouched. `scenario`
@@ -191,16 +183,6 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // value (changing level mid-playback applies starting with the next
   // sentence, not the one already speaking).
   const [clarityLevel, setClarityLevel] = useState(DEFAULT_CLARITY_LEVEL)
-  // SAC-084: visible proof that Clarity Mode's pauses are real, verifiable
-  // setTimeout delays (CLARITY_PAUSE_MS) — not SSML, which this app has
-  // never used anywhere (the Web Speech API this project is built on
-  // doesn't support it). One indicator entry per pause actually inserted so
-  // far in the CURRENT sentence, reset at the start of every new
-  // speakSentenceAt() call — including sentences with zero connector words,
-  // which correctly end up with an empty array (still rendered, per this
-  // round's explicit "always show the row when Spanish text + Clarity are
-  // both on" placement, just with nothing in it yet).
-  const [clarityIndicators, setClarityIndicators] = useState([])
   // Elapsed real-world ms for the current sentence's speech so far —
   // updated at each pause checkpoint and once more at the sentence's end,
   // not continuously (no setInterval), to avoid an unnecessary re-render
@@ -624,7 +606,6 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
         console.log(
           `[Clarity] pause after "${connector}" — level=${level}, delay=${pauseMs}ms (setTimeout, not SSML), elapsed=${elapsed}ms`
         )
-        setClarityIndicators((prev) => [...prev, { connector, level }])
         setSentenceElapsedMs(elapsed)
       }
       setTimeout(() => {
@@ -656,11 +637,10 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     setPlayStatus('playing')
     speakOffsetRef.current = 0
     lastWordCharIndexRef.current = 0
-    // SAC-084: reset every new sentence, including ones with zero connector
-    // words (which correctly end up with an empty indicators array — still
-    // rendered per this round's "always show when Spanish text + Clarity
-    // are both on" placement, just with nothing in it yet).
-    setClarityIndicators([])
+    // SAC-084-Simplify: elapsed-time reset only now — the dot/dash
+    // indicator row (and its clarityIndicators state) was removed this
+    // round; the timer alone still resets fresh at the start of every
+    // sentence.
     setSentenceElapsedMs(0)
     sentenceSpeakStartRef.current = Date.now()
 
@@ -1064,35 +1044,17 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                     🔊
                   </button>
                 </div>
-                {/* SAC-084 fix: the ⏱️ timer now shows whenever Spanish text
-                    is on, regardless of Clarity level — it's a real reading
-                    of how long the sentence took to speak either way, not
-                    something that only means anything with Clarity active.
-                    The dot/dash row stays conditional on Clarity being on,
-                    since with it Off there are no pauses to have marks for
-                    in the first place — always present-but-empty for a
-                    sentence with zero connector words, same as before. */}
+                {/* SAC-084-Simplify: the dot/dash indicator row (and
+                    clarityMarkStyle/clarityIndicators) was removed this
+                    round — Clarity Mode's pause behavior (CLARITY_PAUSE_MS,
+                    all 6 connector words, still adjustable via the Off/Low/
+                    Medium/High/Ultra dropdown below) is unchanged, it's only
+                    the visual proof-of-pause marks that are gone. The timer
+                    alone remains, still showing regardless of Clarity level
+                    since it's a real reading of sentence speech duration
+                    either way. */}
                 <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-                  {clarityLevel !== 'off' && clarityIndicators.map((mark, i) => {
-                    const { shape, colorClass } = clarityMarkStyle(mark)
-                    return (
-                      <span
-                        key={i}
-                        title={`"${mark.connector}" — ${mark.level} (${CLARITY_PAUSE_MS[mark.level]}ms)`}
-                        className="inline-flex items-center gap-0.5"
-                      >
-                        {shape === 'dot' && <span className={`inline-block w-1.5 h-1.5 rounded-full ${colorClass}`} />}
-                        {shape === 'dash' && <span className={`inline-block w-2.5 h-0.5 rounded-full ${colorClass}`} />}
-                        {shape === 'double-dash' && (
-                          <>
-                            <span className={`inline-block w-2 h-0.5 rounded-full ${colorClass}`} />
-                            <span className={`inline-block w-2 h-0.5 rounded-full ${colorClass}`} />
-                          </>
-                        )}
-                      </span>
-                    )
-                  })}
-                  <span className="text-xs text-ink-faint ml-1">⏱️ {sentenceElapsedMs}ms</span>
+                  <span className="text-xs text-ink-faint">⏱️ {sentenceElapsedMs}ms</span>
                 </div>
               </div>
             )}

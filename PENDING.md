@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (Prompt #042, SAC-084 Fix shipped as v1.2g)
+## Last updated: 2026-08-29 (Prompt #046, SAC-084 Simplify shipped as v1.2h)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -537,6 +537,19 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **🚨 Major discovery, not a code bug — flag for any future session:** the Anthropic API account backing this app has hit its own usage quota. Confirmed via direct `curl` to both local dev and live production `/api/translate`, both HTTP 500: `"You have reached your specified API usage limits. You will regain access on 2026-09-01 at 00:00 UTC."` Every Claude-API-dependent feature (uncached story generation, translations, custom topics, sentence explanations) will 500 for every user until then. Not fixable in code — a billing/account matter. If a future session sees confusing 500s before that time, check this first.
 - Verified together via `sac084fix_full_test.js`: timer shows with Clarity Off; Grammar box shows the new failed-state message after a real (quota-caused) failure; indicators/timer accumulate correctly with mocked speech and Clarity=Medium.
 - Version bumped to v1.2g.
+
+### Prompts #044/#045 — SAC-084 Debug (no code change; superseded by #046 below)
+- **API quota confirmed restored:** direct `curl` to production `/api/translate` returned a real 200 — the account's usage limit was genuinely increased as claimed.
+- **Debugged live against production, found no code defect (second consecutive round to confirm this):** dots correctly incremented in the DOM matching real story content and `[Clarity]` console logs, for a live test with Clarity explicitly set to Medium.
+- **Real gap found instead:** Clarity Level wasn't persisted to `localStorage` (unlike the three Display checkboxes) — silently resets to Off on every fresh story/Regenerate, the likely real explanation for "stopped working."
+- Prompt #045 redirected scope to "indicators should render inline between words, not in the summary strip" — a genuine redesign question, asked via `AskUserQuestion`, never answered directly before Prompt #046 changed the ask to removal instead.
+
+### Shipped in v1.2h — Prompt #046, SAC-084 Simplify (Remove Clarity Indicators, Keep Timer + Pause Mechanism)
+- **Removed the entire dot/dash visual indicator system:** `clarityMarkStyle()`, `clarityIndicators` state, both its `setClarityIndicators` call sites, and the JSX block that rendered the marks.
+- **Kept, confirmed still fully working:** the "⏱️ Xms" timer (unchanged behavior — always visible with Spanish text on, any Clarity level), the Off/Low/Medium/High/Ultra dropdown, and the real `setTimeout(pauseMs)` pause mechanism for all 6 connector words (not just "y") — confirmed via a genuine ambiguity check with the user before assuming the dropdown itself should also go.
+- **Prompt cited nonexistent code again** (`renderSentenceWithIndicators()`, `dangerouslySetInnerHTML`, hex colors `#DCB41C`/`#E07A29`) — none exist in this codebase (checked via `Grep`); built against the real equivalents.
+- Verified via mocked-`speechSynthesis` Puppeteer test: 0 dot elements ever appeared in 7.5s of Clarity=Medium playback while 3 real `[Clarity]` pause console logs fired in that same window — proof the pause mechanism survived fully intact.
+- Version bumped to v1.2h.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

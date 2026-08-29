@@ -890,7 +890,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.2g', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.2h', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {
