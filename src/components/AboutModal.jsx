@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { apiFetch } from '../api'
 import { getAllSessions } from '../db'
 
-const APP_VERSION = '1.2a'
+const APP_VERSION = '1.2b'
 
 // SAC-061/063/064: discreet Settings/Info surface, only reachable by clicking
 // the version badge — deliberately not a footer/nav item, since this is dev
@@ -12,6 +12,30 @@ export default function AboutModal({ isOpen, onClose }) {
   const [sessionCount, setSessionCount] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // SAC-080: this app's only user-facing preference so far, so it lives in
+  // this app's only settings-like surface even though its actual effect is
+  // scoped to Listening Mode. Reads/writes the same localStorage key
+  // ListeningStoryView.jsx reads once at mount — the two are siblings with
+  // no direct prop link, so toggling here takes effect on that view's next
+  // fresh mount (a new story or Regenerate), not instantly mid-session.
+  const [keepScreenAwake, setKeepScreenAwake] = useState(() => {
+    try {
+      const saved = localStorage.getItem('keepScreenAwakeOnPlayback')
+      return saved !== null ? saved === 'true' : true
+    } catch {
+      return true
+    }
+  })
+
+  const handleToggleKeepScreenAwake = (checked) => {
+    setKeepScreenAwake(checked)
+    try {
+      localStorage.setItem('keepScreenAwakeOnPlayback', checked ? 'true' : 'false')
+    } catch {
+      // Storage unavailable (private mode, etc.) — the toggle still updates
+      // for this modal session, it just won't persist.
+    }
+  }
 
   useEffect(() => {
     if (!isOpen) return
@@ -85,6 +109,20 @@ export default function AboutModal({ isOpen, onClose }) {
             v{APP_VERSION}
           </span>
           <span className="text-small text-ink-muted">Status: Live</span>
+        </div>
+
+        <div className="mb-4 pb-4 border-b border-border">
+          <label className="flex items-center gap-2 text-small text-ink cursor-pointer">
+            <input
+              type="checkbox"
+              checked={keepScreenAwake}
+              onChange={(e) => handleToggleKeepScreenAwake(e.target.checked)}
+            />
+            Keep screen on during story playback
+          </label>
+          <p className="text-xs text-ink-faint mt-1">
+            Prevents your screen from locking mid-story in Listening Mode. Not supported on all devices; applies the next time you start a story.
+          </p>
         </div>
 
         {loading && <p className="text-small text-ink-muted">Loading usage stats...</p>}

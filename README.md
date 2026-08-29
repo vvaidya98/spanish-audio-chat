@@ -1,4 +1,4 @@
-# Conversation Amigo — v1.2a
+# Conversation Amigo — v1.2b
 
 A beginner-friendly Spanish conversation practice app with audio voice chat powered by Claude.
 
@@ -6,7 +6,7 @@ A beginner-friendly Spanish conversation practice app with audio voice chat powe
 **Tech Stack:** React 18 + Vite (frontend) | Node.js + Express (backend proxy)  
 **Live app:** https://spanish-audio-chat.netlify.app  
 **Backend:** https://spanish-audio-chat-production.up.railway.app  
-**Current Version:** v1.2a
+**Current Version:** v1.2b
 
 ---
 
@@ -361,7 +361,8 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 ✅ Animated loading screen — plain spinner + realistic "usually takes 10 to 20 seconds" message, with real story vocabulary words cycling in one at a time (5 rotating entrance animations) once available, looping until the story is ready — no fake progress percentage  
 ✅ Fast first load — the story itself (and Play) is ready as soon as `/api/generate-story` resolves; Comprehension Check data fetches in the background afterward instead of blocking the spinner on it (roughly halves the old first-load wait)  
 ✅ Translation — a standalone bidirectional Spanish↔English page (own Back button) plus an in-story Quick Translate overlay that doesn't pause or leave the story, both backed by real (non-mocked) Claude translation calls  
-✅ Settings / API usage tracking — tap the version badge to see Claude API call counts, token usage, and estimated cost (today / 7-day trend / all-time), logged locally to SQLite on the backend  
+✅ Settings / API usage tracking — tap the version badge to see Claude API call counts, token usage, and estimated cost (today / 7-day trend / all-time), logged locally to SQLite on the backend; also has a "Keep screen on during story playback" toggle (defaults on, persisted locally), the first user-facing preference in the app  
+✅ Screen Wake Lock during playback — the screen stays on for as long as a story is actively playing in Listening Mode, so mobile screens don't auto-lock and suspend audio mid-story; re-acquires automatically if briefly interrupted by backgrounding the browser; no effect (and no errors) on unsupported browsers/devices  
 ✅ Mobile-optimized tap targets (44px+) and a compact combined scenario header  
 ✅ 8 pre-built scenarios (up from 4) + "Choose One for Me" random-pick-and-start button  
 ✅ Custom Listening Topics — enter any topic (or pick a suggested one, with a 🔄 refresh for 6 new Claude-generated suggestions), choose Beginner/Intermediate/Advanced difficulty, get a generated story in ~20s that plays with every Listening Mode feature; Regenerate makes a new story for the same topic at the same (or a newly-picked) difficulty, never cached  
@@ -423,8 +424,8 @@ The app emphasizes **communication over perfection**. Claude will accept imperfe
 
 ## Development
 
-**Live in production as of v1.2a**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
+**Live in production as of v1.2b**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
 
 ---
 
-**Built by Vinay Vaidya | v1.2a | Last updated: 2026-08-29**
+**Built by Vinay Vaidya | v1.2b | Last updated: 2026-08-29**

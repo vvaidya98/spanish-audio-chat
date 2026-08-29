@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (Prompt #035, SAC-079 shipped as v1.2a)
+## Last updated: 2026-08-29 (Prompt #036, SAC-080 shipped as v1.2b)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -485,6 +485,15 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Verified live:** direct `curl` confirmed correct, well-formed, genuinely useful 0-indexed explanations for a real 8-sentence story in ~12s; in the browser, Display Spanish's ⓘ starts disabled, becomes clickable ~12-13s later, shows real matching content, closes on second click; regenerating immediately re-disables the icon (stale explanations cleared, not just eventually overwritten) with a genuinely different fresh batch arriving for the new story; zero console errors.
 - **Disclosed testing limitation:** could not interactively verify the Transcript section's ⓘ icons — reaching them needs `playStatus === 'finished'`, and this session's headless Chrome returned 0 voices from `speechSynthesis.getVoices()` (confirmed via direct check), a pre-existing environment issue unrelated to this round's code (also blocked an unrelated, code-free "click Play" sanity check). The Transcript integration reuses the identical, already-verified components/state as Display Spanish — only the lookup key differs.
 - Version bumped v1.1f → v1.2a (minor digit, following this round's own explicit target and the SAC-071 precedent for a substantial new feature).
+
+### Shipped in v1.2b — Prompt #036, SAC-080 (Keep Screen Awake During Audio Playback)
+- **Arrived self-labeled "#035," colliding with SAC-079 already using that number — renumbered #036.**
+- **Given `handlePlayPause` replacement would have reintroduced a real, previously-fixed bug** — it called `synthRef.current.pause()`/`.resume()` directly and collapsed the real 4-state (`idle`/`playing`/`gap`/`paused`) playback machine into 2 branches. This codebase deliberately moved off native `.pause()`/`.resume()` in the v1.0h round specifically because it's unreliable in real browsers (documented in CLAUDE.md). Did not touch `handlePlayPause` or any playback handler at all.
+- **Built as one reactive `useEffect`** keyed on `playStatus`/`keepScreenAwake`, deriving acquire/release from the same `isMainPlaying` condition already used elsewhere — correct regardless of how play/pause is internally implemented, no risk of missing a call site.
+- **Real gap the given spec never addressed:** the Wake Lock API auto-releases when the tab is hidden and does NOT auto-reacquire on return — added a `visibilitychange` listener to re-request it, since without this the feature silently stops working after the first time a mobile user backgrounds the browser (arguably the most likely real-world trigger).
+- **Wrong component reference fixed:** the given spec targeted a nonexistent `SettingsModal.jsx` — added the toggle to `AboutModal.jsx` instead, this app's only settings surface and its first genuinely user-facing preference.
+- **Verified live with the real API instrumented** to observe the actual call sequence: Play → 1 request, Pause → 1 release, Regenerate (idle) → release with no immediate re-request, Play again → fresh request, navigate away → final release via unmount. All correct order, zero console errors. Toggle persists to `localStorage`, defaults to on.
+- Version bumped to v1.2b (round's own explicit target).
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

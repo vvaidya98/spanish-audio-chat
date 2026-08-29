@@ -154,6 +154,22 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // already uses for the 🌐 toggle just below, where opening one implicitly
   // closes any other.
   const [openExplanationIdx, setOpenExplanationIdx] = useState(null)
+  // SAC-080: keeps the screen from auto-locking mid-story on mobile.
+  // Read once at mount (matches this round's own testing checklist, which
+  // toggles the setting *between* plays, not mid-session) — AboutModal.jsx
+  // owns the actual toggle UI and writes the same localStorage key, but the
+  // two components are siblings with no direct prop link, so an
+  // already-playing session only picks up a change on its next fresh mount
+  // (new scenario, or Regenerate), not instantly. Defaults to on.
+  const [keepScreenAwake] = useState(() => {
+    try {
+      const saved = localStorage.getItem('keepScreenAwakeOnPlayback')
+      return saved !== null ? saved === 'true' : true
+    } catch {
+      return true
+    }
+  })
+  const wakeLockRef = useRef(null)
 
   // SAC-071: captured once at mount (this component always remounts via a
   // fresh `key` for a new custom session — see App.jsx — so these never need
@@ -394,6 +410,80 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
       stale = true
     }
   }, [story])
+
+  // SAC-080: acquires a screen wake lock for as long as the story is
+  // actively playing or in the inter-sentence gap (`isMainPlaying`, computed
+  // below in the render body — duplicated here as an inline check rather
+  // than reordered above it, since this effect belongs with this file's
+  // other effects near the top, not interspersed with handler definitions),
+  // releases it the instant that stops being true for any reason — user
+  // pause, the story finishing, Regenerate resetting to 'idle', or
+  // navigating away entirely (component unmount runs this same cleanup).
+  // Deliberately reactive to `playStatus` rather than threaded through every
+  // individual call site that can change it (handlePlayPause, manual nav,
+  // handleRegenerateStory, speakSentenceAt's finished branch, etc.) — this
+  // codebase's playback state machine already has many call sites that
+  // touch `playStatus`, and hooking each one individually is exactly the
+  // kind of thing that's easy to miss one of; deriving from the state
+  // itself is correct by construction regardless of how many more call
+  // sites exist or get added later.
+  useEffect(() => {
+    const isPlayingNow = playStatus === 'playing' || playStatus === 'gap'
+
+    const acquireWakeLock = async () => {
+      if (!navigator.wakeLock || !keepScreenAwake || wakeLockRef.current) return
+      try {
+        wakeLockRef.current = await navigator.wakeLock.request('screen')
+        wakeLockRef.current.addEventListener('release', () => {
+          wakeLockRef.current = null
+        })
+      } catch (err) {
+        console.error('[WakeLock] Error acquiring wake lock:', err)
+      }
+    }
+
+    if (isPlayingNow) {
+      acquireWakeLock()
+    } else if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {})
+      wakeLockRef.current = null
+    }
+
+    return () => {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {})
+        wakeLockRef.current = null
+      }
+    }
+  }, [playStatus, keepScreenAwake])
+
+  // SAC-080: a wake lock is automatically released by the browser the
+  // moment the tab/window is hidden (switching apps, the phone's screen
+  // itself turning off via the power button, etc.) and does NOT
+  // automatically re-acquire when it becomes visible again — a real,
+  // documented characteristic of the WakeLock API, not a hypothetical edge
+  // case, and the single most likely way a mobile user would actually
+  // trigger this (briefly switching to check a notification mid-story).
+  // Without this, the feature would silently stop working after the very
+  // first backgrounding, with nothing in the UI indicating it had.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const isPlayingNow = playStatus === 'playing' || playStatus === 'gap'
+      if (document.visibilityState === 'visible' && isPlayingNow && keepScreenAwake && navigator.wakeLock && !wakeLockRef.current) {
+        navigator.wakeLock
+          .request('screen')
+          .then((sentinel) => {
+            wakeLockRef.current = sentinel
+            sentinel.addEventListener('release', () => {
+              wakeLockRef.current = null
+            })
+          })
+          .catch((err) => console.error('[WakeLock] Error re-acquiring after visibility change:', err))
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [playStatus, keepScreenAwake])
 
   // Shared onend behavior for the main sequential playback: pause briefly,
   // then move on to the next sentence.
