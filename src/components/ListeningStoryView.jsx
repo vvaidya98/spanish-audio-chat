@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import HoverableText from './HoverableText'
+import WordSaveTooltip from './WordSaveTooltip'
 import VocabularyMatching from './VocabularyMatching'
 import EmailCapture from './EmailCapture'
 import LoadingSpinner from './LoadingSpinner'
@@ -1218,28 +1219,31 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack, onP
                     if (displayWords.length === 0) {
                       return <p className="text-small text-ink-muted">No especially tricky words in this sentence.</p>
                     }
-                    const expanded = displayWords.find((w) => w.word === expandedVocabWord)
                     return (
-                      <>
-                        <p className="text-small text-ink-muted">
-                          {displayWords.map((w, i) => (
-                            <span key={w.word}>
+                      <p className="text-small text-ink-muted">
+                        {displayWords.map((w, i) => (
+                          <span key={w.word}>
+                            <span className="relative">
                               <button
                                 onClick={() => setExpandedVocabWord((prev) => (prev === w.word ? null : w.word))}
                                 className={`${w.difficulty === 'hard' ? 'font-bold' : 'font-normal'} text-ink hover:text-primary transition`}
                               >
                                 {w.word}
                               </button>
-                              {i < displayWords.length - 1 && <span className="text-ink-faint"> • </span>}
+                              {/* SAC-092: replaced the old inline "word →
+                                  english" reveal line with the same
+                                  click-word tooltip/save popup used
+                                  elsewhere (WordSaveTooltip.jsx, shared with
+                                  HoverableText.jsx) — one consistent popup
+                                  treatment app-wide instead of two. */}
+                              {expandedVocabWord === w.word && (
+                                <WordSaveTooltip word={w.word} english={w.english} source="vocab-preview" />
+                              )}
                             </span>
-                          ))}
-                        </p>
-                        {expanded && (
-                          <p className="text-small text-ink-muted mt-1">
-                            {expanded.word} → {expanded.english}
-                          </p>
-                        )}
-                      </>
+                            {i < displayWords.length - 1 && <span className="text-ink-faint"> • </span>}
+                          </span>
+                        ))}
+                      </p>
                     )
                   })()
                 ) : (

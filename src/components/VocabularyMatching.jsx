@@ -4,6 +4,7 @@ import { applySpanishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
 // (My Words' own multiple-choice review) reuses the exact same shuffle
 // algorithm and correct/wrong feedback tones rather than redefining them.
 import { shuffle, playCorrectBeep, playWrongBeep } from '../quizUtils'
+import SaveWordButton from './SaveWordButton'
 
 const RETRY_MESSAGE_MS = 1200
 // Small delay after a new word appears before its audio auto-plays, so the
@@ -165,12 +166,25 @@ export default function VocabularyMatching({ words, onProgressChange, rate = 0.8
                   <p className="text-ink-muted italic">{currentWord.exampleSentenceEnglish}</p>
                 </div>
               )}
-              <button
-                onClick={handleNext}
-                className="w-full min-h-[44px] mt-2 rounded-control bg-primary text-white font-semibold hover:bg-primary-hover transition"
-              >
-                Next →
-              </button>
+              {/* SAC-092: a separate, single-purpose Save icon next to Next
+                  — not a combined "Save & Next" button. Next always just
+                  advances, regardless of whether Save was tapped; Save
+                  never advances. No urgency concern here (this state is
+                  already persistent, no auto-advance timer to race). */}
+              <div className="flex items-center gap-2 mt-2">
+                <SaveWordButton
+                  spanish={currentWord.word}
+                  english={currentWord.english}
+                  source="vocab-matching"
+                  className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg rounded-control text-ink-faint hover:text-primary hover:bg-primary-light transition shrink-0"
+                />
+                <button
+                  onClick={handleNext}
+                  className="flex-1 min-h-[44px] rounded-control bg-primary text-white font-semibold hover:bg-primary-hover transition"
+                >
+                  Next →
+                </button>
+              </div>
             </div>
           )}
 

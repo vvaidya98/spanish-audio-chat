@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (SAC-091 shipped as v1.2m)
+## Last updated: 2026-08-29 (SAC-092 shipped as v1.2n)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -590,6 +590,13 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - Combined nav entry: Translate's 🌐 icon, labeled "My Words" (per the explicit follow-up correction).
 - Confirmed live: saving from Translate doesn't switch tabs; My Words reflects newly-saved words; ModeSelector's card also lands on the combined view; clean at 390px width.
 - Version bumped to v1.2m.
+
+### Shipped in v1.2n — SAC-092 (Save to My Words: Vocabulary Preview tooltip + Vocabulary Matching icon)
+- **New shared `SaveWordButton.jsx`** (save + checkmark confirmation) and **`WordSaveTooltip.jsx`** (popup wrapper) — `HoverableText.jsx` refactored to use `WordSaveTooltip` too, so all save-tooltip surfaces are the literal same component.
+- **Vocabulary Preview**: clicking a word now opens the same tooltip/save popup as the Spanish box and transcript (verified identical CSS classes), replacing the old inline "word → english" line entirely.
+- **Vocabulary Matching**: new standalone save icon next to the existing Next button after a correct match — fully independent (Save never advances, Next always works regardless of Save).
+- Both new call sites use the same `saveWord()`/dedup logic from SAC-090, confirmed via IndexedDB.
+- Version bumped to v1.2n.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
