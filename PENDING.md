@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (SAC-090 Fix shipped as v1.2l)
+## Last updated: 2026-08-29 (SAC-091 shipped as v1.2m)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -583,6 +583,13 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - Fixed with a `useEffect` resetting the tooltip state on every `text` change.
 - Re-verified: stale tooltip no longer appears; a clean two-sentence save now correctly produces 2 IndexedDB records.
 - Version bumped to v1.2l.
+
+### Shipped in v1.2m — SAC-091 (Consolidate Translate + My Words into one nav entry)
+- **Verified real structure first**, found a real gap beyond the prompt's own description: `ModeSelector.jsx` also has its own "Translation" card (separate from `FooterNav.jsx`), never mentioned in the prompt — updated both.
+- **New `VocabHubView.jsx`**: a segmented control ("Translate" / "My Words," this app's first tab UI) above the two existing, completely unmodified views.
+- Combined nav entry: Translate's 🌐 icon, labeled "My Words" (per the explicit follow-up correction).
+- Confirmed live: saving from Translate doesn't switch tabs; My Words reflects newly-saved words; ModeSelector's card also lands on the combined view; clean at 390px width.
+- Version bumped to v1.2m.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

@@ -12,8 +12,15 @@ export default function ModeSelector({ onSelectMode }) {
           <p className="text-ink-muted text-small">Improve comprehension</p>
         </button>
 
+        {/* SAC-091: targets the new combined 'vocab' mode (VocabHubView,
+            defaulting to its Translate tab) — 'translation' no longer has
+            its own render branch. Label/description kept as Translation-
+            specific, matching this card's own actual framing ("how would
+            you like to practice" -> an activity, not a review feature) —
+            My Words has never had its own card here, only in FooterNav, so
+            nothing needed adding for it specifically. */}
         <button
-          onClick={() => onSelectMode('translation')}
+          onClick={() => onSelectMode('vocab')}
           className="p-6 bg-surface border-2 border-border rounded-card shadow-sm hover:border-primary hover:shadow-md transition text-left"
         >
           <p className="font-bold text-ink text-heading-2 mb-1">🌐 Translation</p>

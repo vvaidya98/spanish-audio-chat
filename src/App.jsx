@@ -3,8 +3,7 @@ import ModeSelector from './components/ModeSelector'
 import ScenarioSelector, { DEFAULT_SCENARIOS } from './components/ScenarioSelector'
 import ConversationView from './components/ConversationView'
 import ListeningStoryView from './components/ListeningStoryView'
-import TranslationView from './components/TranslationView'
-import MyWordsView from './components/MyWordsView'
+import VocabHubView from './components/VocabHubView'
 import HistoryDashboard from './components/HistoryDashboard'
 import SessionReview from './components/SessionReview'
 import FooterNav from './components/FooterNav'
@@ -12,22 +11,23 @@ import AboutModal from './components/AboutModal'
 import { logEvent } from './analytics'
 
 function App() {
-  const [mode, setMode] = useState('') // '', 'conversation', 'listening', 'translation'
+  const [mode, setMode] = useState('') // '', 'conversation', 'listening', 'vocab'
   const [scenario, setScenario] = useState('')
   const [apiError, setApiError] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const [selectedSession, setSelectedSession] = useState(null)
   const [showAboutModal, setShowAboutModal] = useState(false)
-  // SAC-058: lets Translation's "← Back" button return to wherever the user
-  // was before entering Translation, rather than always landing on the Mode
+  // SAC-058: lets the combined Translate/My Words view's (VocabHubView,
+  // SAC-091 — formerly just Translation) "← Back" button return to wherever
+  // the user was before entering it, rather than always landing on the Mode
   // Selector. Captured in handleSelectMode right before switching to
-  // 'translation'. Known limitation: if Translation was reached via a
-  // FooterNav shortcut mid-story, that shortcut already saves+ends the
-  // session before switching modes (existing, unchanged behavior) — Back
-  // reopens the same scenario (fresh load, cache-assisted) but not the exact
-  // sentence position, since there's no longer an in-progress session to
-  // resume. Exact same-spot resume without leaving the view at all is what
-  // the in-story Quick Translate modal (SAC-059/060) is for instead.
+  // 'vocab'. Known limitation: if it was reached via a FooterNav shortcut
+  // mid-story, that shortcut already saves+ends the session before
+  // switching modes (existing, unchanged behavior) — Back reopens the same
+  // scenario (fresh load, cache-assisted) but not the exact sentence
+  // position, since there's no longer an in-progress session to resume.
+  // Exact same-spot resume without leaving the view at all is what the
+  // in-story Quick Translate modal (SAC-059/060) is for instead.
   const [previousMode, setPreviousMode] = useState('')
   const [previousScenario, setPreviousScenario] = useState('')
   // SAC-071: holds a custom topic's pre-generated story (and the topic/
@@ -46,10 +46,12 @@ function App() {
   }, [])
 
   const handleSelectMode = (selectedMode) => {
-    // SAC-090: 'mywords' gets the same previousMode/previousScenario
-    // capture as 'translation' — both are standalone utility pages you jump
-    // into from anywhere and want to return from, not story/scenario modes.
-    if (selectedMode === 'translation' || selectedMode === 'mywords') {
+    // SAC-091: 'vocab' (the combined Translate/My Words view, formerly two
+    // separate modes 'translation'/'mywords') gets the same
+    // previousMode/previousScenario capture — still a standalone utility
+    // page you jump into from anywhere and want to return from, not a
+    // story/scenario mode.
+    if (selectedMode === 'vocab') {
       setPreviousMode(mode)
       setPreviousScenario(scenario)
     }
@@ -59,9 +61,10 @@ function App() {
     setApiError('')
   }
 
-  // Shared Back handler for both Translation and My Words (renamed from
-  // handleTranslationBack, SAC-090) — reusing the one function rather than
-  // two near-identical copies since they do exactly the same thing.
+  // Shared Back handler for the combined Translate/My Words view (renamed
+  // from handleTranslationBack, SAC-090, when it was still shared between
+  // two separate modes) — kept generic since VocabHubView's own two tabs
+  // both use it for their own "← Back" button.
   const handleModeBack = () => {
     setMode(previousMode)
     setScenario(previousScenario)
@@ -122,16 +125,10 @@ function App() {
     handleSelectMode('listening')
   }
 
-  const handleFooterTranslation = () => {
+  const handleFooterVocab = () => {
     if (showHistory) { setShowHistory(false); setSelectedSession(null) }
     if (activeViewRef.current?.back) activeViewRef.current.back()
-    handleSelectMode('translation')
-  }
-
-  const handleFooterMyWords = () => {
-    if (showHistory) { setShowHistory(false); setSelectedSession(null) }
-    if (activeViewRef.current?.back) activeViewRef.current.back()
-    handleSelectMode('mywords')
+    handleSelectMode('vocab')
   }
 
   const handleFooterHistory = () => {
@@ -160,12 +157,8 @@ function App() {
       return <ModeSelector onSelectMode={handleSelectMode} />
     }
 
-    if (mode === 'translation') {
-      return <TranslationView onBack={handleModeBack} />
-    }
-
-    if (mode === 'mywords') {
-      return <MyWordsView onBack={handleModeBack} />
+    if (mode === 'vocab') {
+      return <VocabHubView onBack={handleModeBack} />
     }
 
     if (!scenario) {
@@ -229,7 +222,7 @@ function App() {
               onClick={() => setShowAboutModal(true)}
               className="text-xs text-ink-faint hover:text-ink-muted transition"
             >
-              v1.2l
+              v1.2m
             </button>
           </div>
 
@@ -240,8 +233,7 @@ function App() {
       <FooterNav
         onHome={handleFooterHome}
         onListening={handleFooterListening}
-        onTranslation={handleFooterTranslation}
-        onMyWords={handleFooterMyWords}
+        onVocab={handleFooterVocab}
         onHistory={handleFooterHistory}
       />
 

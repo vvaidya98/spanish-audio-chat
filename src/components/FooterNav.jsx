@@ -5,16 +5,17 @@ const ITEMS = [
   { key: 'home', icon: '🏠', label: 'Home' },
   { key: 'listening', icon: '🎧', label: 'Listening' },
   { key: 'conversation', icon: '💬', label: 'Conversation', disabled: true },
-  { key: 'translation', icon: '🌐', label: 'Translation' },
-  // SAC-090: 🔖 rather than 📖, since the latter is already the in-story
-  // Vocabulary Preview checkbox's icon — reusing it here risked reading as
-  // the same feature rather than a distinct one.
-  { key: 'mywords', icon: '🔖', label: 'My Words' },
+  // SAC-091: Translate and My Words consolidated into one entry (a
+  // segmented control inside VocabHubView.jsx picks between them) — reuses
+  // Translate's 🌐 icon (the default when picking one of the two), labeled
+  // "My Words" per an explicit follow-up correction to keep the label
+  // itself concise rather than something like "Translate & My Words."
+  { key: 'vocab', icon: '🌐', label: 'My Words' },
   { key: 'history', icon: '📊', label: 'History' },
 ]
 
-export default function FooterNav({ onHome, onListening, onTranslation, onMyWords, onHistory }) {
-  const handlers = { home: onHome, listening: onListening, translation: onTranslation, mywords: onMyWords, history: onHistory }
+export default function FooterNav({ onHome, onListening, onVocab, onHistory }) {
+  const handlers = { home: onHome, listening: onListening, vocab: onVocab, history: onHistory }
 
   return (
     <nav
