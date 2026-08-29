@@ -41,25 +41,39 @@
    button on a story's first load, since removing "Tap to Begin" (v1.0t)
    means nothing else prompts a first-time user to click it.
    SAC-078: capped to exactly 3 iterations (was `infinite`, which is what let
-   it keep animating indefinitely if a user never clicked Play) — 0.6s per
-   pulse x 3 = 1.8s total, `forwards` fill-mode so it holds at scale(1)
-   afterward instead of snapping. The finite iteration-count here is the
-   actual stop mechanism; ListeningStoryView.jsx's JS-driven timeout is a
-   redundant belt-and-suspenders stop, not the primary one. */
+   it keep animating indefinitely if a user never clicked Play) — `forwards`
+   fill-mode so it holds at the resting state afterward instead of snapping.
+   The finite iteration-count here is the actual stop mechanism;
+   ListeningStoryView.jsx's JS-driven timeout is a redundant
+   belt-and-suspenders stop, not the primary one.
+   SAC-078 refinement: swapped the original scale(1.5) bounce for a gentler
+   opacity/color breathing fade (1.2s per pulse x 3 = 3.6s total) — the given
+   spec's CSS variables (`--text-primary`/`--text-muted`) don't exist in this
+   file's actual token set (see :root above: `--color-text`/
+   `--color-text-muted`), and those two specifically are meant for dark text
+   on a light background, not this button's actual styling (a solid
+   `bg-primary` teal circle with a white `text-white` icon) — fading toward
+   a body-text gray would look like a mismatched color shift here rather
+   than a clean breathe. Uses `--color-primary-light` instead (already in
+   this palette, a light teal that reads cleanly against the darker teal
+   circle) as the color's low point. */
 @keyframes playButtonPulse {
   0% {
-    transform: scale(1);
+    opacity: 1;
+    color: #ffffff;
   }
   50% {
-    transform: scale(1.5);
+    opacity: 0.6;
+    color: var(--color-primary-light);
   }
   100% {
-    transform: scale(1);
+    opacity: 1;
+    color: #ffffff;
   }
 }
 
 .play-button-pulse {
-  animation: playButtonPulse 0.6s ease-in-out 3 forwards;
+  animation: playButtonPulse 1.2s ease-in-out 3 forwards;
 }
 
 /* LoadingSpinner's cycling word animations (Phase 2.7) — one keyframe per

@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (Prompt #033, SAC-078 shipped as v1.1e)
+## Last updated: 2026-08-29 (Prompt #034, SAC-078 refinement shipped as v1.1f)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -469,6 +469,14 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Deliberately reverses a prior decision, flagged not silent:** v1.0u explicitly suppressed the pulse after Regenerate; this round's "Regenerate/new story → pulses 3x again" is an unambiguous behavior change, not a bug report — removed the old suppression.
 - **Verified live:** fresh scenario pulses immediately, CSS class confirmed gone by ~2s via direct `getComputedStyle` (not just eyeballing); real click stops it within ~150ms; Regenerate on an already-played scenario re-triggers a full pulse; revisiting a genuinely already-played (actually clicked, not just loaded) scenario shows no pulse.
 - Version bumped to v1.1e.
+
+### Shipped in v1.1f — Prompt #034, SAC-078 refinement (gentle opacity/color fade instead of scale bounce)
+- **Sent same-day, no explicit prompt number** — assigned #034 in sequence.
+- **Prompt's CSS snippet didn't match the real code**, checked before editing: named keyframe `play-pulse` (real one is `playButtonPulse`) and referenced `var(--text-primary)`/`var(--text-muted)`, CSS variables that don't exist in this file's `:root` (real names: `--color-text`/`--color-text-muted`).
+- **A real design fix, not just a rename:** even the corrected token name (`--color-text-muted`) wouldn't have looked right — it's a body-text gray meant for the light `--color-surface` background, not for an icon inside a solid teal circular button. Used `--color-primary-light` (already in the palette) as the fade's low point instead, so the color shift reads cleanly against the button's actual styling.
+- **Caught a timing desync before it shipped:** CSS duration changed from 0.6s×3 (1.8s total) to 1.2s×3 (3.6s total), but the prompt never mentioned the JS-side `pulseTimeoutRef` safety-net timeout, still hardcoded to 1800ms — left as-is, it would have flipped state back to "not pulsing" at 1.8s while the CSS animation was still visibly running for another 1.8s. Updated to 3600ms.
+- **Verified live:** `getComputedStyle` confirms 1.2s duration / 3 iterations / forwards; pulse active at 2s, stopped by 4s; a screenshot taken mid-pulse shows the button visibly dimmed at its low point, confirming the fade actually renders (not a given, since the Play/Pause icon is a Unicode glyph whose `color` response to CSS varies by platform — `opacity` was relied on to carry the effect regardless, and did).
+- No functional/eligibility logic changed — pure CSS + one timing-constant fix. Version bumped to v1.1f.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

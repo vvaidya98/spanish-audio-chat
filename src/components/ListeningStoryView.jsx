@@ -110,7 +110,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // `pulseAnimationActive` is purely the visual on/off switch for the
   // `.play-button-pulse` CSS class (see index.css — the CSS animation's own
   // `3`-iteration count, not this timeout, is what actually stops it after
-  // 1.8s; the timeout here is a redundant safety net + lets a real click
+  // 3.6s; the timeout here is a redundant safety net + lets a real click
   // stop it early). Eligibility (should THIS particular story-load pulse at
   // all) is tracked separately via `shouldPulseRef`, computed fresh in
   // loadStory() each time: pulse on any first-ever load of a never-played
@@ -317,7 +317,11 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     setPulseAnimationActive(false)
     const raf = requestAnimationFrame(() => {
       setPulseAnimationActive(true)
-      pulseTimeoutRef.current = setTimeout(() => setPulseAnimationActive(false), 1800)
+      // 3600ms = 1.2s per pulse x 3 (see index.css's playButtonPulse) — must
+      // track the CSS animation's real total duration, or this redundant
+      // safety-net fires early and desyncs from the animation still visibly
+      // running.
+      pulseTimeoutRef.current = setTimeout(() => setPulseAnimationActive(false), 3600)
     })
     return () => {
       cancelAnimationFrame(raf)
@@ -496,7 +500,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   const handlePlayPause = () => {
     if (playStatus === 'idle') {
       // SAC-078: stop the pulse immediately on a real click rather than
-      // leaving it visibly finishing out its remaining ~1.8s on a button
+      // leaving it visibly finishing out its remaining ~3.6s on a button
       // the user has already found and pressed.
       if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
       setPulseAnimationActive(false)
