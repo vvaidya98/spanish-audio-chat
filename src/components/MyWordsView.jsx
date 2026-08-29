@@ -88,52 +88,36 @@ export default function MyWordsView({ onBack }) {
         </button>
         <p className="text-heading-2 text-ink mb-4">Set up review</p>
 
+        {/* SAC-093: plain native radio inputs, matching how this app's
+            checkboxes are styled elsewhere (a bare <input>, no custom
+            button-style treatment) — a visual simplification only, the
+            underlying format/direction state is unchanged. */}
         <p className="text-small font-semibold text-ink mb-2">Format</p>
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => setFormat('flashcards')}
-            className={`flex-1 min-h-[44px] rounded-control font-semibold transition ${
-              format === 'flashcards' ? 'bg-primary text-white' : 'bg-primary-light text-primary-text'
-            }`}
-          >
+        <div className="flex flex-col gap-2 mb-4">
+          <label className="flex items-center gap-2 text-body text-ink cursor-pointer">
+            <input type="radio" name="review-format" checked={format === 'flashcards'} onChange={() => setFormat('flashcards')} />
             Flashcards
-          </button>
-          <button
-            onClick={() => setFormat('quiz')}
-            className={`flex-1 min-h-[44px] rounded-control font-semibold transition ${
-              format === 'quiz' ? 'bg-primary text-white' : 'bg-primary-light text-primary-text'
-            }`}
-          >
+          </label>
+          <label className="flex items-center gap-2 text-body text-ink cursor-pointer">
+            <input type="radio" name="review-format" checked={format === 'quiz'} onChange={() => setFormat('quiz')} />
             Multiple Choice
-          </button>
+          </label>
         </div>
 
         <p className="text-small font-semibold text-ink mb-2">Direction</p>
         <div className="flex flex-col gap-2 mb-6">
-          <button
-            onClick={() => setDirection('es-en')}
-            className={`min-h-[44px] rounded-control font-semibold transition ${
-              direction === 'es-en' ? 'bg-primary text-white' : 'bg-primary-light text-primary-text'
-            }`}
-          >
+          <label className="flex items-center gap-2 text-body text-ink cursor-pointer">
+            <input type="radio" name="review-direction" checked={direction === 'es-en'} onChange={() => setDirection('es-en')} />
             Spanish → English
-          </button>
-          <button
-            onClick={() => setDirection('en-es')}
-            className={`min-h-[44px] rounded-control font-semibold transition ${
-              direction === 'en-es' ? 'bg-primary text-white' : 'bg-primary-light text-primary-text'
-            }`}
-          >
+          </label>
+          <label className="flex items-center gap-2 text-body text-ink cursor-pointer">
+            <input type="radio" name="review-direction" checked={direction === 'en-es'} onChange={() => setDirection('en-es')} />
             English → Spanish
-          </button>
-          <button
-            onClick={() => setDirection('mixed')}
-            className={`min-h-[44px] rounded-control font-semibold transition ${
-              direction === 'mixed' ? 'bg-primary text-white' : 'bg-primary-light text-primary-text'
-            }`}
-          >
+          </label>
+          <label className="flex items-center gap-2 text-body text-ink cursor-pointer">
+            <input type="radio" name="review-direction" checked={direction === 'mixed'} onChange={() => setDirection('mixed')} />
             Mixed
-          </button>
+          </label>
         </div>
 
         <button

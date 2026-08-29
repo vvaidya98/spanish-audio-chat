@@ -104,6 +104,11 @@ function featureForEndpoint(endpoint) {
   // loading split) independent of whether the Vocabulary Preview checkbox
   // is ever checked.
   if (endpoint === '/api/generate-vocabulary-preview') return 'Vocabulary Preview';
+  // SAC-093: own bucket — fires only on-demand (an English-to-Spanish
+  // flashcard flip with no cached example yet), unlike the always-on-load
+  // Explanations/Vocabulary Preview buckets above, but still a distinct
+  // cost driver worth its own line.
+  if (endpoint === '/api/generate-word-example') return 'Word Examples';
   return 'Conversation';
 }
 
@@ -668,6 +673,68 @@ app.post('/api/generate-vocabulary-preview', async (req, res) => {
   }
 });
 
+// SAC-093: mirrors /api/story-questions's own matchingWords.exampleSentence/
+// exampleSentenceEnglish fields (same style/tone — a full simple sentence
+// using the word in a new context, not just a bare phrase) rather than
+// inventing a new format. My Words entries are saved from tooltips/
+// Translate/Vocabulary Preview/Vocabulary Matching, none of which already
+// carry an example sentence, so this generates one on demand instead.
+async function generateWordExample(spanish, english) {
+  const message = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 300,
+    messages: [
+      {
+        role: 'user',
+        content: `Write one short, simple Spanish example sentence using the word "${spanish}" (English: "${english}") in a natural, everyday context, plus its exact English translation.
+
+Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly this shape:
+
+{
+  "exampleSentence": "Vamos a un restaurante nuevo.",
+  "exampleSentenceEnglish": "We're going to a new restaurant."
+}`,
+      },
+    ],
+  });
+
+  if (message.stop_reason === 'max_tokens') {
+    console.warn('/api/generate-word-example: response hit max_tokens, JSON may be truncated');
+  }
+
+  const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+  const parsed = extractJson(rawText);
+  logApiCall('/api/generate-word-example', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
+  return {
+    exampleSentence: typeof parsed.exampleSentence === 'string' ? parsed.exampleSentence : '',
+    exampleSentenceEnglish: typeof parsed.exampleSentenceEnglish === 'string' ? parsed.exampleSentenceEnglish : '',
+  };
+}
+
+/**
+ * POST /api/generate-word-example
+ * SAC-093: { spanish, english } in, one example sentence pair out — used by
+ * WordFlashcards.jsx on an English-to-Spanish card's flip, generated once
+ * per word and then persisted back to IndexedDB (db.js's updateWordExample)
+ * so later reviews of the same word don't regenerate it.
+ */
+app.post('/api/generate-word-example', async (req, res) => {
+  const { spanish, english } = req.body;
+
+  if (!spanish || !english) {
+    return res.status(400).json({ error: 'spanish and english are required' });
+  }
+
+  console.log(`[word-example] Generating for "${spanish}"`);
+  try {
+    const example = await generateWordExample(spanish, english);
+    res.json(example);
+  } catch (error) {
+    console.error('Error in /api/generate-word-example:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate word example' });
+  }
+});
+
 /**
  * POST /api/story-questions
  * Generates 2-3 multiple-choice comprehension questions for a given story.
@@ -989,7 +1056,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.2n', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.2o', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {

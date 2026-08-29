@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (SAC-092 shipped as v1.2n)
+## Last updated: 2026-08-29 (SAC-093 shipped as v1.2o)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -597,6 +597,14 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Vocabulary Matching**: new standalone save icon next to the existing Next button after a correct match — fully independent (Save never advances, Next always works regardless of Save).
 - Both new call sites use the same `saveWord()`/dedup logic from SAC-090, confirmed via IndexedDB.
 - Version bumped to v1.2n.
+
+### Shipped in v1.2o — SAC-093 (Review Setup Radio Buttons + Flashcard Refinements)
+- **Review setup**: colored button groups replaced with plain radio buttons (2 Format, 3 Direction) — same underlying state, visual only.
+- **Flashcards swipe navigation**: swipe left/right mirrors Next/Prev exactly (same functions, same boundary handling); tap-to-flip unaffected.
+- **Example sentence on EN→ES cards**: new `/api/generate-word-example` endpoint, fetched once per word on flip, cached to IndexedDB via new `updateWordExample()`, never shown on ES→EN cards.
+- **Larger word display**: ~2x font size (18px → 36px) on both card faces, card height increased to fit without clipping.
+- **🇪🇸/🇬🇧 flags** added to whichever face is currently showing that language (addendum to the original request).
+- Version bumped to v1.2o.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

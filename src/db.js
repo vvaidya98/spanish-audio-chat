@@ -130,3 +130,27 @@ export async function updateWordReviewStats(id, wasCorrect) {
     tx.onerror = () => reject(tx.error)
   })
 }
+
+// SAC-093: exampleSentence/exampleSentenceEnglish are optional fields, only
+// ever present once a word's first English-to-Spanish flashcard flip has
+// generated one (WordFlashcards.jsx) — no schema/version bump needed, since
+// IndexedDB doesn't enforce a shape on individual records beyond the
+// keyPath. Same read-then-put-in-one-transaction pattern as
+// updateWordReviewStats above.
+export async function updateWordExample(id, { exampleSentence, exampleSentenceEnglish }) {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SAVED_WORDS_STORE, 'readwrite')
+    const store = tx.objectStore(SAVED_WORDS_STORE)
+    const getRequest = store.get(id)
+    getRequest.onsuccess = () => {
+      const word = getRequest.result
+      if (!word) return
+      word.exampleSentence = exampleSentence
+      word.exampleSentenceEnglish = exampleSentenceEnglish
+      store.put(word)
+    }
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
