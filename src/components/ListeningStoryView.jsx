@@ -54,20 +54,44 @@ function markAsPlayed(scenario) {
   }
 }
 
+// SAC-084: also returns which connector word ended each segment (undefined
+// for the final segment, which doesn't end in a pause) — needed so the
+// caller can tell a "y" pause apart from any other connector's, since "y"
+// gets its own always-red indicator regardless of the current Clarity level.
 function splitByConnectors(text) {
   const words = text.split(' ')
   const segments = []
+  const connectors = []
   let current = []
   words.forEach((word) => {
     current.push(word)
     const bare = word.toLowerCase().replace(/[^a-zà-ÿ]/g, '')
     if (CLARITY_CONNECTORS.includes(bare)) {
       segments.push(current.join(' '))
+      connectors.push(bare)
       current = []
     }
   })
   if (current.length) segments.push(current.join(' '))
-  return segments
+  return { segments, connectors }
+}
+
+// SAC-084: "y" always gets its own always-red dot regardless of the current
+// Clarity level — it's a far more frequent, comma-like pause than the other
+// connector words ("porque"/"mientras"/etc.), so calling it out distinctly
+// helps explain why a sentence has so many marks. Everything else maps by
+// level: grey dot (low) → yellow dot (medium) → orange dash (high) → red
+// double-dash (ultra). `bg-ink-faint`/`bg-danger` reuse this project's real
+// design tokens; yellow-500/orange-500 fall back to Tailwind's own built-in
+// palette since this app's extended token set has no equivalent for either
+// (extending Tailwind's theme doesn't remove its defaults, so these are
+// still real, valid utility classes, not a hardcoded hex value).
+function clarityMarkStyle({ connector, level }) {
+  if (connector === 'y') return { shape: 'dot', colorClass: 'bg-danger' }
+  if (level === 'medium') return { shape: 'dot', colorClass: 'bg-yellow-500' }
+  if (level === 'high') return { shape: 'dash', colorClass: 'bg-orange-500' }
+  if (level === 'ultra') return { shape: 'double-dash', colorClass: 'bg-danger' }
+  return { shape: 'dot', colorClass: 'bg-ink-faint' } // low, and any fallback
 }
 
 // SAC-071: storyData/customDifficulty are only present for a custom topic
@@ -129,12 +153,18 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
       return false
     }
   })
+  // SAC-084: defaults to off now, like Spanish/English — reverses SAC-081's
+  // deliberate on-by-default choice (made to avoid silently hiding a ⓘ icon
+  // that used to always show). That original concern doesn't apply the same
+  // way anymore: SAC-085's loading placeholder means checking Grammar now
+  // gives immediate visible feedback either way, and this round explicitly
+  // asked for all three to start unchecked.
   const [showGrammar, setShowGrammar] = useState(() => {
     try {
       const saved = localStorage.getItem('showGrammarExplanations')
-      return saved !== null ? saved === 'true' : true
+      return saved !== null ? saved === 'true' : false
     } catch {
-      return true
+      return false
     }
   })
   // SAC-048/078: pulses the Play button a fixed 3 times when a story becomes
@@ -161,6 +191,22 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // value (changing level mid-playback applies starting with the next
   // sentence, not the one already speaking).
   const [clarityLevel, setClarityLevel] = useState(DEFAULT_CLARITY_LEVEL)
+  // SAC-084: visible proof that Clarity Mode's pauses are real, verifiable
+  // setTimeout delays (CLARITY_PAUSE_MS) — not SSML, which this app has
+  // never used anywhere (the Web Speech API this project is built on
+  // doesn't support it). One indicator entry per pause actually inserted so
+  // far in the CURRENT sentence, reset at the start of every new
+  // speakSentenceAt() call — including sentences with zero connector words,
+  // which correctly end up with an empty array (still rendered, per this
+  // round's explicit "always show the row when Spanish text + Clarity are
+  // both on" placement, just with nothing in it yet).
+  const [clarityIndicators, setClarityIndicators] = useState([])
+  // Elapsed real-world ms for the current sentence's speech so far —
+  // updated at each pause checkpoint and once more at the sentence's end,
+  // not continuously (no setInterval), to avoid an unnecessary re-render
+  // loop for a debug/verification display.
+  const [sentenceElapsedMs, setSentenceElapsedMs] = useState(0)
+  const sentenceSpeakStartRef = useRef(0)
   // SAC-059/060: Quick Translate modal, opened without pausing playback.
   const [showQuickTranslate, setShowQuickTranslate] = useState(false)
   // SAC-065: confirmation gate in front of Regenerate Story.
@@ -533,8 +579,14 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // each, then hands off to the normal handleSentenceUtteranceEnd once the
   // last segment finishes — so auto-advance/gap timing downstream is
   // unaffected by how many segments a sentence was broken into.
-  const speakClaritySegment = (idx, segments, segIdx, pauseMs) => {
+  // SAC-084: `connectors[segIdx]` is the word that ends the segment about to
+  // finish — recorded as a real pause event (not SSML, this app doesn't use
+  // it anywhere; this is the actual setTimeout(pauseMs) delay below) the
+  // moment that pause is scheduled, for both the visible indicator row and
+  // a console log verifying the real mechanism.
+  const speakClaritySegment = (idx, segments, segIdx, pauseMs, connectors) => {
     if (segIdx >= segments.length) {
+      setSentenceElapsedMs(Date.now() - sentenceSpeakStartRef.current)
       handleSentenceUtteranceEnd(idx)
       return
     }
@@ -546,14 +598,24 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     utterance.pitch = 1
     utterance.onend = () => {
       if (token !== utteranceTokenRef.current) return
+      const connector = connectors[segIdx]
+      if (connector) {
+        const level = clarityLevelRef.current
+        const elapsed = Date.now() - sentenceSpeakStartRef.current
+        console.log(
+          `[Clarity] pause after "${connector}" — level=${level}, delay=${pauseMs}ms (setTimeout, not SSML), elapsed=${elapsed}ms`
+        )
+        setClarityIndicators((prev) => [...prev, { connector, level }])
+        setSentenceElapsedMs(elapsed)
+      }
       setTimeout(() => {
         if (token !== utteranceTokenRef.current) return
-        speakClaritySegment(idx, segments, segIdx + 1, pauseMs)
+        speakClaritySegment(idx, segments, segIdx + 1, pauseMs, connectors)
       }, pauseMs)
     }
     utterance.onerror = () => {
       if (token !== utteranceTokenRef.current) return
-      speakClaritySegment(idx, segments, segIdx + 1, pauseMs)
+      speakClaritySegment(idx, segments, segIdx + 1, pauseMs, connectors)
     }
 
     synthRef.current.cancel()
@@ -575,11 +637,18 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     setPlayStatus('playing')
     speakOffsetRef.current = 0
     lastWordCharIndexRef.current = 0
+    // SAC-084: reset every new sentence, including ones with zero connector
+    // words (which correctly end up with an empty indicators array — still
+    // rendered per this round's "always show when Spanish text + Clarity
+    // are both on" placement, just with nothing in it yet).
+    setClarityIndicators([])
+    setSentenceElapsedMs(0)
+    sentenceSpeakStartRef.current = Date.now()
 
     if (clarityLevelRef.current !== 'off') {
-      const segments = splitByConnectors(sentences[idx].spanish)
+      const { segments, connectors } = splitByConnectors(sentences[idx].spanish)
       if (segments.length > 1) {
-        speakClaritySegment(idx, segments, 0, CLARITY_PAUSE_MS[clarityLevelRef.current])
+        speakClaritySegment(idx, segments, 0, CLARITY_PAUSE_MS[clarityLevelRef.current], connectors)
         return
       }
     }
@@ -595,6 +664,12 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     }
     utterance.onend = () => {
       if (token !== utteranceTokenRef.current) return
+      // SAC-084: this sentence had no connector words (the clarity-segment
+      // branch above never ran), so there were no pauses to log — but the
+      // elapsed-time checkpoint still needs a final value, since the
+      // indicator row shows for every sentence when Clarity is on, not just
+      // segmented ones.
+      setSentenceElapsedMs(Date.now() - sentenceSpeakStartRef.current)
       handleSentenceUtteranceEnd(idx)
     }
     utterance.onerror = () => {
@@ -970,6 +1045,35 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                     🔊
                   </button>
                 </div>
+                {/* SAC-084: always shown here when Spanish text is on and
+                    Clarity isn't off — even for a sentence with zero
+                    connector words, which just means an empty dot/dash row
+                    (still correct: nothing to verify, nothing shown) and a
+                    real elapsed-time reading once it's done speaking. */}
+                {clarityLevel !== 'off' && (
+                  <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                    {clarityIndicators.map((mark, i) => {
+                      const { shape, colorClass } = clarityMarkStyle(mark)
+                      return (
+                        <span
+                          key={i}
+                          title={`"${mark.connector}" — ${mark.level} (${CLARITY_PAUSE_MS[mark.level]}ms)`}
+                          className="inline-flex items-center gap-0.5"
+                        >
+                          {shape === 'dot' && <span className={`inline-block w-1.5 h-1.5 rounded-full ${colorClass}`} />}
+                          {shape === 'dash' && <span className={`inline-block w-2.5 h-0.5 rounded-full ${colorClass}`} />}
+                          {shape === 'double-dash' && (
+                            <>
+                              <span className={`inline-block w-2 h-0.5 rounded-full ${colorClass}`} />
+                              <span className={`inline-block w-2 h-0.5 rounded-full ${colorClass}`} />
+                            </>
+                          )}
+                        </span>
+                      )
+                    })}
+                    <span className="text-xs text-ink-faint ml-1">⏱️ {sentenceElapsedMs}ms</span>
+                  </div>
+                )}
               </div>
             )}
 
