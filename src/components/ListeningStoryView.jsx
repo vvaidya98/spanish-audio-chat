@@ -73,9 +73,12 @@ function splitByConnectors(text) {
 // doubles as the custom topic's own text in that case (used for the header,
 // sessionStorage keys, and the /api/story-questions cache key exactly the
 // same way a real scenario name already was — no special-casing needed
-// there), while isCustomRef/storyDataRef/customDifficultyRef (below) capture
-// just enough at mount to make loadStory()'s regenerate branch call the
-// right endpoint.
+// there), while isCustomRef/storyDataRef (below) capture just enough at
+// mount to make loadStory()'s regenerate branch call the right endpoint.
+// SAC-076: difficultyRef (below) starts from customDifficulty but, unlike
+// isCustomRef/storyDataRef, is mutable for the life of the component —
+// RegenerateModal's difficulty picker updates it for both pre-built and
+// custom sessions alike.
 function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, ref) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -122,7 +125,13 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // to change mid-lifetime).
   const isCustomRef = useRef(storyData != null)
   const storyDataRef = useRef(storyData)
-  const customDifficultyRef = useRef(customDifficulty)
+  // SAC-076: unlike isCustomRef/storyDataRef above, this one DOES change over
+  // this component's lifetime — RegenerateModal's difficulty picker updates
+  // it (via handleConfirmRegenerate) right before a regenerate, for both
+  // pre-built scenarios and custom topics alike. Starts at the custom story's
+  // original difficulty when there is one, else 'Beginner' (pre-built stories
+  // had no difficulty concept before this round).
+  const difficultyRef = useRef(customDifficulty || 'Beginner')
 
   const synthRef = useRef(null)
   const indexRef = useRef(0)
@@ -199,10 +208,13 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // (CustomTopicForm generated it before this component even mounted), no
   // fetch needed; (2) a *regenerate* of a custom topic — storyDataRef is
   // stale/already-consumed by (1), so this calls /api/generate-custom-story
-  // with the original topic+difficulty instead; (3) everything else (a
-  // pre-built scenario's first load or regenerate) — unchanged, calls
-  // /api/generate-story. All three converge on the same setStory/
-  // sentencesRef/background-questions-fetch logic below.
+  // with the topic+difficultyRef.current instead (SAC-076: not necessarily
+  // the *original* difficulty anymore — handleConfirmRegenerate updates
+  // difficultyRef before calling this if the user picked a different level);
+  // (3) everything else (a pre-built scenario's first load or regenerate) —
+  // calls /api/generate-story, also passing difficultyRef.current (SAC-076).
+  // All three converge on the same setStory/sentencesRef/background-
+  // questions-fetch logic below.
   const loadStory = async (isStale, regenerate = false) => {
     setLoading(true)
     setError('')
@@ -215,7 +227,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
         const response = await apiFetch('/api/generate-custom-story', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: scenario, difficulty: customDifficultyRef.current }),
+          body: JSON.stringify({ topic: scenario, difficulty: difficultyRef.current }),
         })
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}))
@@ -226,7 +238,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
         const storyResponse = await apiFetch('/api/generate-story', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scenario, regenerate }),
+          body: JSON.stringify({ scenario, regenerate, difficulty: difficultyRef.current }),
         })
         if (!storyResponse.ok) {
           const errorData = await storyResponse.json().catch(() => ({}))
@@ -247,7 +259,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
         const questionsResponse = await apiFetch('/api/story-questions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scenario, story_text: storyText }),
+          body: JSON.stringify({ scenario, story_text: storyText, difficulty: difficultyRef.current }),
         })
         if (!questionsResponse.ok) {
           const errorData = await questionsResponse.json().catch(() => ({}))
@@ -435,8 +447,9 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     loadStory(() => false, true)
   }
 
-  const handleConfirmRegenerate = () => {
+  const handleConfirmRegenerate = (selectedDifficulty) => {
     setShowRegenerateModal(false)
+    difficultyRef.current = selectedDifficulty
     handleRegenerateStory()
   }
 
@@ -821,6 +834,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
       <RegenerateModal
         isOpen={showRegenerateModal}
         scenario={scenario}
+        currentDifficulty={difficultyRef.current}
         onCancel={() => setShowRegenerateModal(false)}
         onConfirm={handleConfirmRegenerate}
       />

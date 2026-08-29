@@ -1,4 +1,4 @@
-# Conversation Amigo — v1.1c
+# Conversation Amigo — v1.1d
 
 A beginner-friendly Spanish conversation practice app with audio voice chat powered by Claude.
 
@@ -6,7 +6,7 @@ A beginner-friendly Spanish conversation practice app with audio voice chat powe
 **Tech Stack:** React 18 + Vite (frontend) | Node.js + Express (backend proxy)  
 **Live app:** https://spanish-audio-chat.netlify.app  
 **Backend:** https://spanish-audio-chat-production.up.railway.app  
-**Current Version:** v1.1c
+**Current Version:** v1.1d
 
 ---
 
@@ -49,7 +49,7 @@ npm run backend
 Open http://localhost:5173 in your browser. The frontend will call the backend at `http://localhost:3000/api/*`.
 
 ### Test
-- The footer nav (🏠 Home / 🎧 Listening / 💬 Conversation / 🌐 Translation / 📊 History) is fixed to the bottom of every screen. From Home, tap **🎧 Listening Mode**, then pick a scenario card directly (no confirm step), tap **🎲 Choose One for Me** for a random one (8 pre-built scenarios total), or tap **✨ Create Custom Topic** (3rd card) to enter any topic of your own — type it or pick from 6 suggested-topic pills (tap 🔄 for 6 new Claude-generated ones), choose a Beginner/Intermediate/Advanced difficulty, and Generate Story (~20s). A custom story plays through the exact same view as a pre-built one, with every feature below — Regenerate on a custom story generates a new story for the *same* topic and difficulty, not a return to the form. **🗣️ Conversation Mode is currently disabled** ("coming soon" on its mode card) — the flow below still exists in the code and works if re-enabled, it's just not reachable in the live app right now.
+- The footer nav (🏠 Home / 🎧 Listening / 💬 Conversation / 🌐 Translation / 📊 History) is fixed to the bottom of every screen. From Home, tap **🎧 Listening Mode**, then pick a scenario card directly (no confirm step), tap **🎲 Choose One for Me** for a random one (8 pre-built scenarios total), or tap **✨ Create Custom Topic** (3rd card) to enter any topic of your own — type it or pick from 6 suggested-topic pills (tap 🔄 for 6 new Claude-generated ones), choose a Beginner/Intermediate/Advanced difficulty, and Generate Story (~20s). A custom story plays through the exact same view as a pre-built one, with every feature below — Regenerate on a custom story generates a new story for the *same* topic (difficulty picker defaults to the current one but can be changed), not a return to the form. Regenerate on a *pre-built* scenario now also offers the same Beginner/Intermediate/Advanced picker, not just custom topics. **🗣️ Conversation Mode is currently disabled** ("coming soon" on its mode card) — the flow below still exists in the code and works if re-enabled, it's just not reachable in the live app right now.
 - **Conversation Mode (disabled in the live app, code intact):** select a topic → "Start Conversation". Claude's opening plays as audio (text hidden). Tap "Tap to Speak", say something in Spanish, tap "Tap to Send". Replay at 1x/0.8x/0.6x, or tap "Display text" to reveal it. Continue for 5-8 exchanges, then "End Conversation" for the summary (transcript + corrections) — this also saves the session to history.
 - **Listening Mode:** picking a scenario goes straight to loading (no confirm screen). While the story generates, a plain spinner with an honest "this usually takes 10 to 20 seconds" message plays, with real story vocabulary words cycling in once available — repeat visits to an already-generated scenario load near-instantly (cached in SQLite on the backend, automatically re-warmed within a few minutes of every deploy, so this holds even for the *first* real visit after a fresh deploy — see "Story caching" below). Comprehension Check data (MCQ + Vocabulary Matching) loads in the background after the story appears rather than blocking the spinner on it — Play works immediately, and the Check Comprehension toggle becomes available a bit later, well before the story finishes. The story then plays automatically, sentence by sentence, auto-pausing ~1.3s between sentences to absorb what you heard — text stays hidden unless you check "Display Spanish" and/or "Display English" (independent checkboxes, numbered to match the sentence, with a 🔊 replay icon and click-word definitions on the Spanish side). The Play button pulses on a story's first load to show you where to start, and stops for good once you've clicked it (even across a page reload) — a fresh, never-played scenario pulses again. Controls: First (⏮) / Previous (◀) / Play-Pause (▶/⏸, large center button) / Next (▶) / Last (⏩), plus a progress bar with "Sentence X of Y". One row below the controls has **Speed** (x1.0/x0.8/x0.6/x0.4, x0.6 is the default), **Clarity** (Off/Low/Medium/High/Ultra — inserts a pause after connector words like "y"/"pero"/"porque", longer at higher levels), and a 🔄 Regenerate icon (a confirmation modal guards against accidental taps, since it discards current progress) — Speed and Clarity are changeable mid-playback. A plain-text **Quick Translate** link (near Display Spanish/English, deliberately understated) opens a translate overlay without leaving or pausing the story. After the story finishes, two toggle buttons appear — "✓ Check Comprehension" (MCQ questions + one-at-a-time Vocabulary Matching) and "📖 Display Transcript" (numbered sentences with 🔊 play / 🌐 translate icons) — both can be open at once. Navigating away (via the footer nav) saves the session to history.
 - **Translation:** a standalone page (🌐 in the footer nav) for one-off bidirectional Spanish↔English translation, separate from the in-story Quick Translate overlay — has its own Back button that returns to wherever you were.
@@ -172,16 +172,17 @@ User input → Claude response + English feedback + structured error analysis.
 `errors` is `[]` when nothing worth flagging was found. This feeds the end-of-conversation Summary view.
 
 ### `POST /api/generate-story`
-Generates a listening-comprehension story (100-150 words, 7-10 sentences of 10-15 words each) for a scenario, using a varied/expanded vocabulary (not just the most obvious handful of words), plus a word-by-word vocabulary list for click-to-define. Cached per-scenario on the backend (`.cache/stories.json`, local to the running server process — reset on every redeploy/restart, not a durable cache).
+Generates a listening-comprehension story (100-150 words, 7-10 sentences of 10-15 words each) for a scenario at a given difficulty, using a varied/expanded vocabulary (not just the most obvious handful of words), plus a word-by-word vocabulary list for click-to-define. Cached in SQLite (`./data/api_usage.db`'s `story_cache` table), keyed on `(scenario, difficulty)` — a scenario can hold up to 3 independently-cached versions. Survives a same-container restart; does not survive an actual Railway redeploy (ephemeral filesystem — see "Story caching" in Features below), which a background startup routine compensates for by auto-re-warming the Beginner difficulty for all 8 scenarios shortly after every deploy.
 
 **Request:**
 ```json
 {
   "scenario": "Ordering at a Restaurant",
+  "difficulty": "Beginner",
   "regenerate": false
 }
 ```
-`regenerate` is optional (defaults to falsy). Falsy → checks the cache first, returns instantly on a hit. `true` → always generates fresh and overwrites the cache entry for that scenario.
+`difficulty` is optional (defaults to `"Beginner"` for backward compatibility) — one of `"Beginner"`, `"Intermediate"`, `"Advanced"`. `regenerate` is also optional (defaults to falsy). Falsy → checks the cache for that exact `(scenario, difficulty)` pair first, returns instantly on a hit. `true` → always generates fresh (bypassing the cache entirely, even if that difficulty was already cached) and overwrites the cache entry.
 
 **Response:**
 ```json
@@ -203,9 +204,11 @@ Generates 2-3 multiple-choice comprehension questions for a given story, with En
 ```json
 {
   "scenario": "Ordering at a Restaurant",
-  "story_text": "María va a un restaurante. ..."
+  "story_text": "María va a un restaurante. ...",
+  "difficulty": "Beginner"
 }
 ```
+`difficulty` is optional (defaults to `"Beginner"`) — used both as part of the response cache key (so switching a scenario's difficulty can't serve questions written for a different difficulty's story) and to frame the story's difficulty accurately in the prompt sent to Claude.
 
 **Response:**
 ```json
@@ -240,7 +243,7 @@ Generates 2-3 multiple-choice comprehension questions for a given story, with En
 `vocabulary` here is separate from the story's own vocabulary — question words (e.g. "dónde", "quién") often don't appear in the story text, so they need their own definitions for click-to-define. `matchingWords` is words taken verbatim from the story text, 5-10 entries with a genuine easy/medium/hard difficulty mix, for the Vocabulary Matching exercise — each entry's example phrase/sentence use the word in a context *different* from the story, shown after a correct match.
 
 ### `POST /api/generate-custom-story`
-Generates a Spanish listening story for a user-entered topic + difficulty (SAC-071), same `{sentences, vocabulary}` shape as `/api/generate-story`. Never cached — every call is a fresh generation.
+Generates a Spanish listening story for a user-entered topic + difficulty (SAC-071), same `{sentences, vocabulary}` shape as `/api/generate-story` and, as of SAC-076, the same shared difficulty wording (`DIFFICULTY_LEVELS`/`DIFFICULTY_GUIDE` in `server.js`) that pre-built scenarios use. Never cached — every call is a fresh generation.
 
 **Request:**
 ```json
@@ -316,16 +319,16 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 ✅ End-of-conversation summary — full transcript, highlighted errors, corrections *(Conversation Mode, currently disabled)*  
 ✅ Listening Mode — scenario cards skip straight to loading (no confirm step); 7-10 sentence stories (10-15 words each, varied vocabulary); controls are First (⏮) / Previous (◀) / Play-Pause (▶/⏸) / Next (▶) / Last (⏩) with a "Sentence X of Y" progress bar; speed x1.0/x0.8/x0.6/x0.4 (x0.6 default); **Clarity Mode** (Off/Low/Medium/High/Ultra) adds a pause after connector words ("y"/"pero"/"porque"/"cuando"/"mientras"/"si"), duration scales with the level; explicit Spanish voice selection preferring Colombian/Latin American variants (es-CO → es-419 → es-MX → es-US → es-ES) before Spain Spanish, plus a tuned start-of-speech delay for crisper syllables; independent "Display Spanish"/"Display English" checkboxes (numbered to match the sentence, 🔊 replay icon + click-word definitions on the Spanish side) alongside a toggle-based Comprehension Check / Transcript (hidden until tapped); transcript has per-sentence 🔊 play / 🌐 translate icons + click-word definitions; global sticky footer nav (Home / Listening / Conversation / Translation / History) on every screen  
 ✅ Play button first-load pulse — draws attention to Play on a story's first load, stops for good once clicked (persists across a page reload via `sessionStorage`, keyed per scenario), pulses again fresh for a never-played scenario  
-✅ Regenerate Story — a confirmation modal guards the small 🔄 icon near the bottom, since regenerating discards current progress with no undo  
+✅ Regenerate Story — a confirmation modal guards the small 🔄 icon near the bottom (since regenerating discards current progress with no undo) and lets you pick a Beginner/Intermediate/Advanced difficulty for the new story, defaulting to the current one — works for both pre-built scenarios and custom topics alike; always generates fresh, bypassing the cache even for an already-cached difficulty  
 ✅ Vocabulary Matching — one word at a time (easiest first), word audio auto-plays as each word appears, green pill-style answer options, success/error tones, example phrase + sentence shown after a correct match, manual "Next →" (no auto-advance timer)  
-✅ Story caching — SQLite-backed (`./data/api_usage.db`); a background startup routine automatically pre-generates all 8 scenarios within a few minutes of every deploy, so the first real visit after a fresh deploy loads from cache too, not a live ~20s generation (Railway's filesystem is ephemeral across actual redeploys, same as this project's other server-side caches — the win here is the automatic re-warm on every deploy, not the cache surviving between them)  
+✅ Story caching — SQLite-backed (`./data/api_usage.db`), keyed on `(scenario, difficulty)` so each scenario can hold up to 3 independently-cached versions; a background startup routine automatically pre-generates the Beginner difficulty for all 8 scenarios within a few minutes of every deploy (Intermediate/Advanced generate on-demand the first time requested, then stay cached), so the first real visit after a fresh deploy loads from cache too, not a live ~20s generation (Railway's filesystem is ephemeral across actual redeploys, same as this project's other server-side caches — the win here is the automatic re-warm on every deploy, not the cache surviving between them)  
 ✅ Animated loading screen — plain spinner + realistic "usually takes 10 to 20 seconds" message, with real story vocabulary words cycling in one at a time (5 rotating entrance animations) once available, looping until the story is ready — no fake progress percentage  
 ✅ Fast first load — the story itself (and Play) is ready as soon as `/api/generate-story` resolves; Comprehension Check data fetches in the background afterward instead of blocking the spinner on it (roughly halves the old first-load wait)  
 ✅ Translation — a standalone bidirectional Spanish↔English page (own Back button) plus an in-story Quick Translate overlay that doesn't pause or leave the story, both backed by real (non-mocked) Claude translation calls  
 ✅ Settings / API usage tracking — tap the version badge to see Claude API call counts, token usage, and estimated cost (today / 7-day trend / all-time), logged locally to SQLite on the backend  
 ✅ Mobile-optimized tap targets (44px+) and a compact combined scenario header  
 ✅ 8 pre-built scenarios (up from 4) + "Choose One for Me" random-pick-and-start button  
-✅ Custom Listening Topics — enter any topic (or pick a suggested one, with a 🔄 refresh for 6 new Claude-generated suggestions), choose Beginner/Intermediate/Advanced difficulty, get a generated story in ~20s that plays with every Listening Mode feature; Regenerate makes a new story for the same topic/difficulty, never cached  
+✅ Custom Listening Topics — enter any topic (or pick a suggested one, with a 🔄 refresh for 6 new Claude-generated suggestions), choose Beginner/Intermediate/Advanced difficulty, get a generated story in ~20s that plays with every Listening Mode feature; Regenerate makes a new story for the same topic at the same (or a newly-picked) difficulty, never cached  
 ✅ Session history — every completed session saved to IndexedDB (local-only), browsable via a History Dashboard (stats, filters, pagination) and per-session Review (Conversation: exchange-by-exchange with error highlights; Listening: transcript + MCQ/vocab results)  
 ✅ Card-based design system — centralized color/typography/spacing tokens (teal primary, coral secondary), consistent across every screen  
 ✅ Web Speech API (browser native)  
@@ -365,7 +368,6 @@ See PENDING.md for full roadmap. Next up:
 
 - SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
 - Set a real `VITE_FORMSPREE_URL` to activate the email capture form
-- SAC-030: Difficulty selector (A1 Beginner / A1.5-A2 Intermediate / B1+ Advanced)
 - Scoring system
 - User progress tracking
 
@@ -385,8 +387,8 @@ The app emphasizes **communication over perfection**. Claude will accept imperfe
 
 ## Development
 
-**Live in production as of v1.1c**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
+**Live in production as of v1.1d**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
 
 ---
 
-**Built by Vinay Vaidya | v1.1c | Last updated: 2026-08-28**
+**Built by Vinay Vaidya | v1.1d | Last updated: 2026-08-29**

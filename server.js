@@ -7,6 +7,18 @@ import { DatabaseSync } from 'node:sqlite';
 
 dotenv.config();
 
+// SAC-076: shared between generateStoryFromClaude (pre-built scenarios) and
+// generateCustomStoryFromClaude (custom topics) — previously only the custom
+// endpoint had a difficulty concept at all (SAC-071); pre-built stories
+// always generated at one fixed, implicitly-beginner level. Hoisted to
+// module scope once both functions need the identical wording.
+const DIFFICULTY_LEVELS = ['Beginner', 'Intermediate', 'Advanced'];
+const DIFFICULTY_GUIDE = {
+  Beginner: 'Simple present tense, common everyday vocabulary, short clear sentences, no subjunctive.',
+  Intermediate: 'A mix of present and past tenses, more varied vocabulary, natural sentence structure.',
+  Advanced: 'Complex sentences, subjunctive mood where natural, idiomatic expressions, varied verb tenses.',
+};
+
 // API call usage tracking (SAC-062), for dev cost visibility only — not
 // billed/enforced, just logged. Uses Node's built-in node:sqlite (stable in
 // Node 22.5+/24) rather than an npm dependency like better-sqlite3, so this
@@ -34,11 +46,30 @@ usageDb.exec(`
 // survive a fresh clone, but does survive a server restart within one
 // deployed environment, which is the whole point: story generation is the
 // same cost either way, this just avoids paying it again on every restart).
+//
+// SAC-076: primary key changed from `scenario` alone to `(scenario,
+// difficulty)` — a scenario can now exist at up to 3 cached difficulty
+// levels simultaneously, and regenerating at Intermediate must not overwrite
+// (or be shadowed by) a separately-cached Beginner version of the same
+// scenario. On Railway this needs no real migration (confirmed in the
+// SAC-073 round — the filesystem is ephemeral with no persistent volume, so
+// a fresh CREATE TABLE with a different key shape is free there). Local dev
+// DOES persist ./data/api_usage.db across restarts, though, so a pre-SAC-076
+// dev database can still have the old scenario-only-PK table on disk —
+// dropped and recreated below if so (losing a warm local cache is harmless,
+// it just re-warms on next startup).
+const storyCacheColumns = usageDb.prepare("PRAGMA table_info(story_cache)").all();
+if (storyCacheColumns.length > 0 && !storyCacheColumns.some((c) => c.name === 'difficulty')) {
+  console.log('[startup] Migrating story_cache to (scenario, difficulty) schema — dropping old cache table');
+  usageDb.exec('DROP TABLE story_cache');
+}
 usageDb.exec(`
   CREATE TABLE IF NOT EXISTS story_cache (
-    scenario TEXT PRIMARY KEY,
+    scenario TEXT NOT NULL,
+    difficulty TEXT NOT NULL,
     story_json TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (scenario, difficulty)
   )
 `);
 
@@ -130,9 +161,9 @@ function getUsageStats() {
 // warmupCache() below don't need to know the storage changed underneath
 // them) — reads/writes wrapped in try/catch so a locked or corrupt db file
 // degrades to "cache miss, generate fresh" rather than a hard failure.
-function getCachedStory(scenario) {
+function getCachedStory(scenario, difficulty = 'Beginner') {
   try {
-    const row = usageDb.prepare('SELECT story_json FROM story_cache WHERE scenario = ?').get(scenario);
+    const row = usageDb.prepare('SELECT story_json FROM story_cache WHERE scenario = ? AND difficulty = ?').get(scenario, difficulty);
     return row ? JSON.parse(row.story_json) : null;
   } catch (err) {
     console.error('[cache] Failed to read story cache, treating as a miss:', err);
@@ -140,15 +171,15 @@ function getCachedStory(scenario) {
   }
 }
 
-function cacheStory(scenario, storyData) {
+function cacheStory(scenario, difficulty, storyData) {
   try {
     usageDb
       .prepare(
-        `INSERT INTO story_cache (scenario, story_json, created_at) VALUES (?, ?, ?)
-         ON CONFLICT(scenario) DO UPDATE SET story_json = excluded.story_json, created_at = excluded.created_at`
+        `INSERT INTO story_cache (scenario, difficulty, story_json, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(scenario, difficulty) DO UPDATE SET story_json = excluded.story_json, created_at = excluded.created_at`
       )
-      .run(scenario, JSON.stringify(storyData), new Date().toISOString());
-    console.log(`[cache] Stored: ${scenario}`);
+      .run(scenario, difficulty, JSON.stringify(storyData), new Date().toISOString());
+    console.log(`[cache] Stored: ${scenario} (${difficulty})`);
   } catch (err) {
     console.error('[cache] Failed to write story cache (story still returned to the caller, just not persisted):', err);
   }
@@ -175,20 +206,26 @@ const WARMUP_SCENARIOS = [
 let cacheReady = false;
 let cacheWarmupStatus = { total: WARMUP_SCENARIOS.length, alreadyCached: 0, generated: 0, failed: 0 };
 
-// Separate cache for /api/story-questions (MCQ + vocabulary-matching data),
-// keyed by scenario the same way as storyCache. Deliberately not tied to
-// story content/regenerate: on "Regenerate Story," the cached questions from
-// the old story are served alongside the new one rather than regenerated —
-// see SAC-033's regenerate note in PENDING.md for why that tradeoff was kept.
+// Separate cache for /api/story-questions (MCQ + vocabulary-matching data).
+// SAC-034 made regenerate clear the old entry (a fresh story needs fresh
+// questions, not stale ones from the story it replaced) — this comment used
+// to say the opposite ("deliberately not tied to regenerate"), which stopped
+// being true once that fix shipped; corrected here instead of left stale.
+// SAC-076: key is now `${scenario}|||${difficulty}`, not `scenario` alone —
+// the same scenario can have differently-worded (and differently-lengthed)
+// questions per difficulty, since they're generated from that difficulty's
+// story text; without this, switching difficulty could show comprehension
+// questions written for a *different* difficulty's story.
 const questionsCache = new Map();
+const questionsCacheKey = (scenario, difficulty) => `${scenario}|||${difficulty}`;
 
-function getCachedQuestions(scenario) {
-  return questionsCache.get(scenario) || null;
+function getCachedQuestions(scenario, difficulty) {
+  return questionsCache.get(questionsCacheKey(scenario, difficulty)) || null;
 }
 
-function cacheQuestions(scenario, data) {
-  questionsCache.set(scenario, data);
-  console.log(`[cache] Stored questions for: ${scenario}`);
+function cacheQuestions(scenario, difficulty, data) {
+  questionsCache.set(questionsCacheKey(scenario, difficulty), data);
+  console.log(`[cache] Stored questions for: ${scenario} (${difficulty})`);
 }
 
 const app = express();
@@ -317,16 +354,18 @@ If the user's Spanish had no errors worth flagging, return "errors": []. Only fl
 // the cache itself (the route handler and warmupCache() each decide when to
 // call this and what to do with the result) and does not catch its own
 // errors — callers are expected to.
-async function generateStoryFromClaude(scenario) {
+async function generateStoryFromClaude(scenario, difficulty = 'Beginner') {
   const message = await client.messages.create({
     model: 'claude-opus-4-8',
     max_tokens: 7000,
     messages: [
       {
         role: 'user',
-        content: `You are writing a Spanish listening-comprehension story for a beginner learner, for the scenario: "${scenario}".
+        content: `You are writing a Spanish listening-comprehension story for a language learner, for the scenario: "${scenario}".
 
-Write a story in Spanish, 100-150 words total across 7-10 sentences (natural pacing, with pauses between sentences for a beginner to absorb each one). This is important: EACH sentence must be 10-15 words long — short and punchy, but a complete thought, not a fragment. For example: "Ana entra en el restaurante y busca una mesa vacía cerca de la ventana." (13 words) or "El camarero le trae el menú y le pregunta qué desea comer." (12 words). Keep the grammar simple (present tense, no subjunctive) and give the story a coherent narrative arc — a clear beginning, middle, and end.
+Difficulty level: ${difficulty}. ${DIFFICULTY_GUIDE[difficulty]}
+
+Write a story in Spanish, 100-150 words total across 7-10 sentences (natural pacing, with pauses between sentences to absorb each one). This is important: EACH sentence must be 10-15 words long — short and punchy, but a complete thought, not a fragment. For example: "Ana entra en el restaurante y busca una mesa vacía cerca de la ventana." (13 words) or "El camarero le trae el menú y le pregunta qué desea comer." (12 words). Give the story a coherent narrative arc — a clear beginning, middle, and end.
 
 Use a VARIED, expanded vocabulary rather than only the most obvious handful of words for this scenario — go beyond the first words that come to mind. For example, for "Ordering at a Restaurant", don't just use pollo/arroz/agua/camarero every time; also draw from a wider pool depending on what fits the story: other foods (pescado, verduras, ensalada, sopa, pan, postre), other drinks (café, vino, cerveza, té, jugo), and varied action verbs (probar, pedir, recomendar, disfrutar, compartir, pagar) — pick whichever of these fit the specific story you're writing, don't force all of them in.
 
@@ -379,30 +418,39 @@ The "vocabulary" array must include an entry for EVERY distinct word that appear
  * that scenario's vocabulary, plus a word-by-word vocabulary list for tooltips.
  */
 app.post('/api/generate-story', async (req, res) => {
-  const { scenario, regenerate } = req.body;
+  // SAC-076: difficulty defaults to 'Beginner' if omitted, so any caller that
+  // predates this round (or the frontend's own initial scenario-pick flow,
+  // which still doesn't ask for a difficulty) gets identical behavior to
+  // before this feature existed.
+  const { scenario, regenerate, difficulty = 'Beginner' } = req.body;
 
   if (!scenario) {
     return res.status(400).json({ error: 'Missing scenario' });
   }
+  if (!DIFFICULTY_LEVELS.includes(difficulty)) {
+    return res.status(400).json({ error: 'Invalid difficulty level' });
+  }
 
   if (!regenerate) {
-    const cached = getCachedStory(scenario);
+    const cached = getCachedStory(scenario, difficulty);
     if (cached) {
-      console.log(`[generate-story] Using cached story for '${scenario}'`);
+      console.log(`[generate-story] Using cached story for '${scenario}' (${difficulty})`);
       return res.json(cached);
     }
   } else {
     // The old story's questions/vocab-matching data no longer matches what's
     // about to be generated — drop it so the next /api/story-questions call
     // regenerates fresh instead of serving a stale, mismatched cache hit.
-    questionsCache.delete(scenario);
-    console.log(`[cache] Cleared questions for regenerate: ${scenario}`);
+    // Only this exact (scenario, difficulty) combo's questions are invalid —
+    // other difficulty levels' cached stories/questions are untouched.
+    questionsCache.delete(questionsCacheKey(scenario, difficulty));
+    console.log(`[cache] Cleared questions for regenerate: ${scenario} (${difficulty})`);
   }
-  console.log(`[generate-story] ${regenerate ? 'Regenerating' : 'Generating'} story for '${scenario}'`);
+  console.log(`[generate-story] ${regenerate ? 'Regenerating' : 'Generating'} story for '${scenario}' (${difficulty})`);
 
   try {
-    const storyData = await generateStoryFromClaude(scenario);
-    cacheStory(scenario, storyData);
+    const storyData = await generateStoryFromClaude(scenario, difficulty);
+    cacheStory(scenario, difficulty, storyData);
     res.json(storyData);
   } catch (error) {
     console.error('Error in /api/generate-story:', error);
@@ -417,18 +465,22 @@ app.post('/api/generate-story', async (req, res) => {
  * Generates 2-3 multiple-choice comprehension questions for a given story.
  */
 app.post('/api/story-questions', async (req, res) => {
-  const { scenario, story_text } = req.body;
+  // SAC-076: difficulty defaults to 'Beginner' for the same backward-compat
+  // reason as /api/generate-story — used here purely as part of the cache
+  // key (so switching a scenario's difficulty can't serve questions written
+  // for a different difficulty's story) and in the prompt's own framing.
+  const { scenario, story_text, difficulty = 'Beginner' } = req.body;
 
   if (!scenario || !story_text) {
     return res.status(400).json({ error: 'Missing scenario or story_text' });
   }
 
-  const cachedQuestions = getCachedQuestions(scenario);
+  const cachedQuestions = getCachedQuestions(scenario, difficulty);
   if (cachedQuestions) {
-    console.log(`[story-questions] Using cached questions for '${scenario}'`);
+    console.log(`[story-questions] Using cached questions for '${scenario}' (${difficulty})`);
     return res.json(cachedQuestions);
   }
-  console.log(`[story-questions] Generating questions for '${scenario}'`);
+  console.log(`[story-questions] Generating questions for '${scenario}' (${difficulty})`);
 
   try {
     const message = await client.messages.create({
@@ -437,7 +489,7 @@ app.post('/api/story-questions', async (req, res) => {
       messages: [
         {
           role: 'user',
-          content: `Here is a beginner-level Spanish story for the scenario "${scenario}":
+          content: `Here is a ${difficulty.toLowerCase()}-level Spanish story for the scenario "${scenario}":
 
 "${story_text}"
 
@@ -492,7 +544,7 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
       vocabulary: Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [],
       matchingWords: Array.isArray(parsed.matchingWords) ? parsed.matchingWords : [],
     };
-    cacheQuestions(scenario, questionsData);
+    cacheQuestions(scenario, difficulty, questionsData);
     logApiCall('/api/story-questions', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
     res.json(questionsData);
   } catch (error) {
@@ -509,12 +561,6 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
 // isn't a sensible fit for the fixed-scenario SQLite cache (SAC-073) or its
 // warmup list.
 async function generateCustomStoryFromClaude(topic, difficulty) {
-  const difficultyGuide = {
-    Beginner: 'Simple present tense, common everyday vocabulary, short clear sentences, no subjunctive.',
-    Intermediate: 'A mix of present and past tenses, more varied vocabulary, natural sentence structure.',
-    Advanced: 'Complex sentences, subjunctive mood where natural, idiomatic expressions, varied verb tenses.',
-  };
-
   const message = await client.messages.create({
     model: 'claude-opus-4-8',
     // SAC-077: was 3000 when "vocabulary" only asked for 8-12 selected
@@ -529,7 +575,7 @@ async function generateCustomStoryFromClaude(topic, difficulty) {
         role: 'user',
         content: `You are writing a Spanish listening-comprehension story for a language learner, on the topic: "${topic}".
 
-Difficulty level: ${difficulty}. ${difficultyGuide[difficulty]}
+Difficulty level: ${difficulty}. ${DIFFICULTY_GUIDE[difficulty]}
 
 Write the story in Spanish, 8-10 sentences totaling roughly 250-300 words, with a clear beginning, middle, and end.
 
@@ -575,7 +621,7 @@ app.post('/api/generate-custom-story', async (req, res) => {
   if (!topic || !topic.trim()) {
     return res.status(400).json({ error: 'Topic is required' });
   }
-  if (!['Beginner', 'Intermediate', 'Advanced'].includes(difficulty)) {
+  if (!DIFFICULTY_LEVELS.includes(difficulty)) {
     return res.status(400).json({ error: 'Invalid difficulty level' });
   }
 
@@ -585,7 +631,7 @@ app.post('/api/generate-custom-story', async (req, res) => {
   // generation of the same topic text) no longer matches and would otherwise
   // be served stale, the same class of bug SAC-034 fixed for regenerating a
   // pre-built scenario.
-  questionsCache.delete(trimmedTopic);
+  questionsCache.delete(questionsCacheKey(trimmedTopic, difficulty));
 
   console.log(`[generate-custom-story] Generating story for topic '${trimmedTopic}' (${difficulty})`);
 
@@ -698,18 +744,25 @@ app.get('/api/usage-stats', (req, res) => {
 // Claude calls against the same API key on every deploy, and because there's
 // no user waiting on this specific timing (unlike a live request). A small
 // delay between calls gives a little breathing room against rate limits.
+// SAC-076: warms only the Beginner difficulty — a deliberate choice, not an
+// oversight. Warming all 3 levels for all 8 scenarios would triple both
+// startup time (~2.5min -> ~7.5min) and the real Claude API cost of every
+// single deploy. Intermediate/Advanced generate on-demand on whichever
+// scenario a user first requests them for (~20s that one time), then stay
+// cached for the rest of that deployed instance's life — the same tradeoff
+// the original pre-SAC-073 in-memory cache already had for every scenario.
 async function warmupCache() {
-  console.log(`[startup] Warming up story cache for ${WARMUP_SCENARIOS.length} scenarios...`);
+  console.log(`[startup] Warming up story cache for ${WARMUP_SCENARIOS.length} scenarios (Beginner only)...`);
   for (const scenario of WARMUP_SCENARIOS) {
-    if (getCachedStory(scenario)) {
+    if (getCachedStory(scenario, 'Beginner')) {
       console.log(`  [startup] already cached: ${scenario}`);
       cacheWarmupStatus.alreadyCached++;
       continue;
     }
     try {
       console.log(`  [startup] generating: ${scenario}...`);
-      const storyData = await generateStoryFromClaude(scenario);
-      cacheStory(scenario, storyData);
+      const storyData = await generateStoryFromClaude(scenario, 'Beginner');
+      cacheStory(scenario, 'Beginner', storyData);
       cacheWarmupStatus.generated++;
       console.log(`  [startup] cached: ${scenario}`);
     } catch (err) {
@@ -728,7 +781,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.1c', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.1d', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {

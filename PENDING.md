@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-28 (Prompts #025 + #026 + quick fix shipped to production as v1.0x)
+## Last updated: 2026-08-29 (Prompt #032, SAC-076 shipped as v1.1d)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -449,11 +449,22 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Vocabulary hover — the one item the prompt explicitly asked to have clarified, not guessed:** traced `HoverableText.jsx`'s underline condition to its data source and found a concrete answer, not a genuine ambiguity — pre-built stories' prompt already requests every distinct word; `/api/generate-custom-story` (built last round, SAC-071) requests only "8-12 useful words," a real inconsistency introduced when custom topics were added. Fixed by matching pre-built's full-coverage instruction and raising `max_tokens` 3000→10000 for the larger resulting vocabulary list. Verified by generating a real custom story and diffing its actual API response — 59 distinct words, 59 vocabulary entries, 100% coverage.
 - No version was specified in the prompt this round; bumped to the next sequential value, v1.1c.
 
+### Shipped in v1.1d — Prompt #032, SAC-076 (Difficulty Selector on Regenerate — all scenarios, not just custom topics)
+- **Prompt's own premise was checked and found false before building:** it claimed `/api/generate-story` "already accepts `difficulty` (from SAC-071)" — SAC-071 only ever added `difficulty` to the separate `/api/generate-custom-story` endpoint. Pre-built scenarios never had a difficulty concept at all; this was real backend architecture work (cache-key redesign, a genuine cost/time tradeoff on warmup), not just a frontend modal wired to an endpoint that already supported it.
+- **Shared difficulty logic:** new module-scope `DIFFICULTY_LEVELS`/`DIFFICULTY_GUIDE` in `server.js`, used by both `generateStoryFromClaude` (pre-built, gained a `difficulty = 'Beginner'` parameter) and `generateCustomStoryFromClaude` (custom, whose own separate `difficultyGuide` object was removed in favor of the shared one). Sentence-count/length constraints (100-150 words, 7-10 sentences) deliberately unchanged across difficulty levels — only vocabulary/grammar complexity varies.
+- **Cache keys made composite:** `story_cache`'s SQLite primary key changed from `scenario` alone to `(scenario, difficulty)`, so a scenario can hold up to 3 independently-cached versions. The in-memory `questionsCache` got the identical treatment via a new `questionsCacheKey(scenario, difficulty)` helper — an unrequested fix, but a necessary one: without it, switching a scenario's difficulty could serve `/api/story-questions` data written for a *different* difficulty's story text, a real content mismatch, not a hypothetical.
+- **Warmup cost tradeoff — decided via `AskUserQuestion`, not assumed:** warming all 3 difficulty levels for all 8 scenarios would triple both the ~2.5min startup warmup time and its real Claude API cost on every deploy. Vinay chose Beginner-only (unchanged from SAC-073) — Intermediate/Advanced generate on-demand the first time a user requests them for a given scenario.
+- **Frontend:** `ListeningStoryView.jsx`'s previously-frozen `customDifficultyRef` (SAC-071) generalized into a mutable `difficultyRef`, usable by both pre-built and custom sessions. `RegenerateModal.jsx` gained a difficulty radio-group (defaulting to the story's current difficulty, re-synced on every reopen), reporting the selection back via `onConfirm(selectedDifficulty)` — one combined confirm step, not a second chained modal.
+- **Local-dev-only migration issue found and fixed:** unlike Railway's ephemeral filesystem (a fresh `CREATE TABLE` is free on every redeploy there), the local dev SQLite file persists across `npm run backend` restarts on this machine — a pre-existing dev database with the old scenario-only-PK `story_cache` table threw `no such column: difficulty` on startup. Fixed with a one-time `PRAGMA table_info` check that drops and recreates the table if the old schema is detected (harmless — just re-warms).
+- **Real bug caught during live testing, not code review:** `/api/story-questions`'s `cacheQuestions(scenario, questionsData)` call site was missed in the initial signature-change pass, silently shifting `questionsData` into the `difficulty` parameter and logging `[object Object]`. Caught via that exact log line during a live Puppeteer test run, fixed to `cacheQuestions(scenario, difficulty, questionsData)`.
+- **Verified live:** Regenerate modal shows all 3 options, defaults to Beginner, and correctly remembers the last-selected difficulty on reopen; regenerating at Advanced produces genuinely more complex content (verified by diffing actual sentence text — subjunctive forms like "arruine"/"pudiera"/"acabaran" present in Advanced output, absent from Beginner); a fresh non-regenerate load of an already-warmed scenario hits the SQLite cache in ~70ms; custom-topic regenerate-with-difficulty-change works end-to-end with zero console errors. Also confirmed (not assumed) that Regenerate has always unconditionally bypassed the story cache, before and unrelated to this round — an initial test expectation that switching back to a previously-generated difficulty would be a fast cache hit was itself wrong, corrected after reading `/api/generate-story`'s actual route logic.
+- Version bumped to v1.1d across all 4 standard locations + `package-lock.json` synced via `npm install`.
+- **Supersedes the long-parked SAC-030** ("Difficulty selector") — see below, now checked off.
+
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
 2. Set a real `VITE_FORMSPREE_URL` so the email capture form goes live (code is shipped but no-ops without it)
-3. SAC-030: Difficulty selector (Phase 3+)
-4. SAC-068 (reserved, not yet defined) — the #026 deploy commit message referenced "SAC-052–068," one higher than the 067 actually specified in Prompt #026's own content; no 068 spec was ever given, so nothing was built against it. Flagging here rather than silently inventing scope for a number that was never defined.
+3. SAC-068 (reserved, not yet defined) — the #026 deploy commit message referenced "SAC-052–068," one higher than the 067 actually specified in Prompt #026's own content; no 068 spec was ever given, so nothing was built against it. Flagging here rather than silently inventing scope for a number that was never defined.
 
 ---
 
@@ -499,7 +510,7 @@ See DONE section for full implementation notes.
 See DONE section for full implementation notes.
 
 ### Phase 3+ (future, not yet scheduled)
-- [ ] SAC-030: Difficulty selector (A1 Beginner / A1.5-A2 Intermediate / B1+ Advanced)
+- [x] SAC-030: Difficulty selector (A1 Beginner / A1.5-A2 Intermediate / B1+ Advanced) — shipped in two parts: SAC-071 (v1.1a) added it for custom topics at story-creation time, SAC-076 (v1.1d) extended it to Regenerate for every scenario, pre-built and custom alike. See DONE section / "Shipped in v1.1d" above.
 
 ### Known issues flagged alongside this roadmap — diagnosed 2026-08-25
 - **History Dashboard "0 sessions" — root cause: not a bug, an expectation mismatch.** Re-tested against production using Playwright's WebKit engine (Safari's actual rendering/storage engine, iPhone 13 emulation) rather than Chromium: a session saved and completed in one browser context correctly appeared in History (`1 Total Sessions`) in the same context; a **separate, fresh browser context with no prior session correctly showed `0 Total Sessions`**. IndexedDB is per-origin *and* per-browser-profile — sessions completed on one device/browser never appear on another device/browser/incognito window, by design (this was already documented as a known characteristic in CLAUDE.md's IndexedDB section, just not obviously visible reasoning to someone hitting it live). If "0 sessions" was reported on a *device that had actually completed a session earlier*, that would be a real bug and needs a repro with those specifics (which device, which browser, private/regular window, was a session actually completed there beforehand) — not yet confirmed as an actual repro.
@@ -509,7 +520,7 @@ See DONE section for full implementation notes.
 
 ## 💡 Ideas Parked for Phase 2
 
-- Difficulty selector (absolute beginner → intermediate → advanced)
+- ~~Difficulty selector (absolute beginner → intermediate → advanced)~~ — shipped, see SAC-030 above (SAC-071 + SAC-076)
 - Vocabulary hints / phrase suggestions mid-conversation
 - User accounts + progress dashboard
 - Scoring system (accuracy + fluency metrics)
