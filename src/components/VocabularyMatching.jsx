@@ -1,5 +1,9 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { applySpanishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
+// SAC-090: shuffle/tone logic extracted to quizUtils.js so WordQuiz.jsx
+// (My Words' own multiple-choice review) reuses the exact same shuffle
+// algorithm and correct/wrong feedback tones rather than redefining them.
+import { shuffle, playCorrectBeep, playWrongBeep } from '../quizUtils'
 
 const RETRY_MESSAGE_MS = 1200
 // Small delay after a new word appears before its audio auto-plays, so the
@@ -12,38 +16,6 @@ const DIFFICULTY_STYLES = {
   medium: 'bg-warn-light text-warn-text',
   hard: 'bg-secondary-light text-secondary-text',
 }
-
-function shuffle(array) {
-  const copy = [...array]
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[copy[i], copy[j]] = [copy[j], copy[i]]
-  }
-  return copy
-}
-
-function playTone(frequency, type, durationSec, volume) {
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext
-    if (!AudioCtx) return
-    const ctx = new AudioCtx()
-    const oscillator = ctx.createOscillator()
-    const gain = ctx.createGain()
-    oscillator.type = type
-    oscillator.frequency.value = frequency
-    gain.gain.value = volume
-    oscillator.connect(gain)
-    gain.connect(ctx.destination)
-    oscillator.start()
-    oscillator.stop(ctx.currentTime + durationSec)
-    oscillator.onended = () => ctx.close()
-  } catch (err) {
-    console.error('Could not play feedback sound:', err)
-  }
-}
-
-const playCorrectBeep = () => playTone(880, 'sine', 0.15, 0.08)
-const playWrongBeep = () => playTone(220, 'square', 0.2, 0.08)
 
 // Builds a stable (per-word) set of 1 correct + up to 4 distractor options,
 // drawn from the other words' English translations in this same list.

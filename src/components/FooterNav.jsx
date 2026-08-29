@@ -6,11 +6,15 @@ const ITEMS = [
   { key: 'listening', icon: '🎧', label: 'Listening' },
   { key: 'conversation', icon: '💬', label: 'Conversation', disabled: true },
   { key: 'translation', icon: '🌐', label: 'Translation' },
+  // SAC-090: 🔖 rather than 📖, since the latter is already the in-story
+  // Vocabulary Preview checkbox's icon — reusing it here risked reading as
+  // the same feature rather than a distinct one.
+  { key: 'mywords', icon: '🔖', label: 'My Words' },
   { key: 'history', icon: '📊', label: 'History' },
 ]
 
-export default function FooterNav({ onHome, onListening, onTranslation, onHistory }) {
-  const handlers = { home: onHome, listening: onListening, translation: onTranslation, history: onHistory }
+export default function FooterNav({ onHome, onListening, onTranslation, onMyWords, onHistory }) {
+  const handlers = { home: onHome, listening: onListening, translation: onTranslation, mywords: onMyWords, history: onHistory }
 
   return (
     <nav

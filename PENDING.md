@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (Prompt #050, SAC-087/089 Refinements shipped as v1.2j)
+## Last updated: 2026-08-29 (SAC-090 My Words shipped as v1.2k)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -568,6 +568,15 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **🚩 Flagged, not resolved:** the round's testing checklist says scenario navigation should reset checkboxes to unchecked — this conflicts with SAC-081's established `localStorage` persistence. Chose to preserve persistence rather than guess; confirm with Vinay whether Previous/Next Topic should be a deliberate exception.
 - **Change 5 (S1 loading investigation):** added `[Timing]` console logs, reproduced the reported symptom, and confirmed it's not a bug — Phase 1 genuinely takes ~2.5-3s, Phase 2 genuinely takes ~9-12s (real API latency), exactly the tradeoff the original hybrid-loading spec (Prompt #048) anticipated. Data is confirmed reaching state correctly, nothing is silently lost.
 - Version bumped to v1.2j.
+
+### Shipped in v1.2k — SAC-090 (My Words Personal Vocabulary Bank)
+- **Verified real code first** (as explicitly requested): `db.js`, `HoverableText.jsx`, `QuickTranslateModal.jsx`, `TranslationView.jsx`, `FooterNav.jsx` all checked directly — found mostly accurate this round, one correction (the `.catch(console.error)` pattern lives at call sites, not inside `db.js` itself).
+- **New `savedWords` IndexedDB store** (DB version 1→2, existing `sessions` store untouched), with `saveWord`/`getAllSavedWords`/`deleteWord`/`updateWordReviewStats`.
+- **Save buttons added** to the word-tooltip (`HoverableText.jsx`), Quick Translate modal, and the standalone Translation page — all three share one dedup check in `db.js`.
+- **New `MyWordsView.jsx`**: list, search filter, delete (verified to survive a hard reload), Review entry point (disabled with an explanation below 2 words).
+- **Two review formats**: `WordFlashcards.jsx` (real 3D CSS flip, Prev/Next, stable Mixed-direction assignment) and `WordQuiz.jsx` (4-option multiple choice, graceful shrink at low word counts, exact audio-tone reuse from `VocabularyMatching.jsx` via a new shared `quizUtils.js`).
+- **New 🔖 footer nav entry** — confirmed all 6 items still fit cleanly at 390px width.
+- Version bumped to v1.2k.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

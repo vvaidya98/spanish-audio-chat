@@ -4,6 +4,7 @@ import ScenarioSelector, { DEFAULT_SCENARIOS } from './components/ScenarioSelect
 import ConversationView from './components/ConversationView'
 import ListeningStoryView from './components/ListeningStoryView'
 import TranslationView from './components/TranslationView'
+import MyWordsView from './components/MyWordsView'
 import HistoryDashboard from './components/HistoryDashboard'
 import SessionReview from './components/SessionReview'
 import FooterNav from './components/FooterNav'
@@ -45,7 +46,10 @@ function App() {
   }, [])
 
   const handleSelectMode = (selectedMode) => {
-    if (selectedMode === 'translation') {
+    // SAC-090: 'mywords' gets the same previousMode/previousScenario
+    // capture as 'translation' — both are standalone utility pages you jump
+    // into from anywhere and want to return from, not story/scenario modes.
+    if (selectedMode === 'translation' || selectedMode === 'mywords') {
       setPreviousMode(mode)
       setPreviousScenario(scenario)
     }
@@ -55,7 +59,10 @@ function App() {
     setApiError('')
   }
 
-  const handleTranslationBack = () => {
+  // Shared Back handler for both Translation and My Words (renamed from
+  // handleTranslationBack, SAC-090) — reusing the one function rather than
+  // two near-identical copies since they do exactly the same thing.
+  const handleModeBack = () => {
     setMode(previousMode)
     setScenario(previousScenario)
   }
@@ -121,6 +128,12 @@ function App() {
     handleSelectMode('translation')
   }
 
+  const handleFooterMyWords = () => {
+    if (showHistory) { setShowHistory(false); setSelectedSession(null) }
+    if (activeViewRef.current?.back) activeViewRef.current.back()
+    handleSelectMode('mywords')
+  }
+
   const handleFooterHistory = () => {
     if (activeViewRef.current?.back) activeViewRef.current.back()
     logEvent('history_dashboard_viewed')
@@ -148,7 +161,11 @@ function App() {
     }
 
     if (mode === 'translation') {
-      return <TranslationView onBack={handleTranslationBack} />
+      return <TranslationView onBack={handleModeBack} />
+    }
+
+    if (mode === 'mywords') {
+      return <MyWordsView onBack={handleModeBack} />
     }
 
     if (!scenario) {
@@ -212,7 +229,7 @@ function App() {
               onClick={() => setShowAboutModal(true)}
               className="text-xs text-ink-faint hover:text-ink-muted transition"
             >
-              v1.2j
+              v1.2k
             </button>
           </div>
 
@@ -224,6 +241,7 @@ function App() {
         onHome={handleFooterHome}
         onListening={handleFooterListening}
         onTranslation={handleFooterTranslation}
+        onMyWords={handleFooterMyWords}
         onHistory={handleFooterHistory}
       />
 

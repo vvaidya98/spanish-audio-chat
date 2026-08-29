@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../api'
+import { saveWord } from '../db'
 
 const COPIED_MESSAGE_MS = 2000
 
@@ -14,6 +15,7 @@ export default function QuickTranslateModal({ isOpen, onClose }) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [wordSaved, setWordSaved] = useState(false)
 
   useEffect(() => {
     if (!isOpen) return
@@ -31,12 +33,30 @@ export default function QuickTranslateModal({ isOpen, onClose }) {
     setSourceText('')
     setTranslatedText('')
     setError('')
+    setWordSaved(false)
+  }
+
+  // SAC-090: which field is Spanish vs. English depends entirely on the
+  // modal's current direction toggle — sourceText/translatedText themselves
+  // don't carry a language label.
+  const handleSaveToWords = async () => {
+    if (!translatedText) return
+    const spanish = isSpanishToEnglish ? sourceText : translatedText
+    const english = isSpanishToEnglish ? translatedText : sourceText
+    try {
+      await saveWord({ spanish, english, source: 'translate' })
+      setWordSaved(true)
+      setTimeout(() => setWordSaved(false), COPIED_MESSAGE_MS)
+    } catch (err) {
+      console.error('Could not save word:', err)
+    }
   }
 
   const handleTranslate = async () => {
     if (!sourceText.trim()) return
     setIsLoading(true)
     setError('')
+    setWordSaved(false)
 
     try {
       const response = await apiFetch('/api/translate', {
@@ -134,9 +154,17 @@ export default function QuickTranslateModal({ isOpen, onClose }) {
         <button
           onClick={handleCopy}
           disabled={!translatedText}
-          className="w-full min-h-[44px] rounded-control bg-primary-light text-primary-text font-semibold hover:bg-primary-light/70 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full min-h-[44px] mb-2 rounded-control bg-primary-light text-primary-text font-semibold hover:bg-primary-light/70 transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {copied ? '✓ Copied!' : 'Copy'}
+        </button>
+
+        <button
+          onClick={handleSaveToWords}
+          disabled={!translatedText}
+          className="w-full min-h-[44px] rounded-control bg-secondary-light text-secondary-text font-semibold hover:bg-secondary-light/70 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {wordSaved ? '✓ Saved!' : '🔖 Save to My Words'}
         </button>
       </div>
     </div>
