@@ -103,8 +103,39 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // once). These are persistent preferences, not per-sentence reveal state —
   // unlike v1.0t's single checkbox + 🌐 toggle, they don't reset as the
   // sentence changes, only the content inside the box updates.
-  const [showSpanish, setShowSpanish] = useState(false)
-  const [showEnglish, setShowEnglish] = useState(false)
+  // SAC-081: persisted via localStorage (extends SAC-047's original
+  // component-only state) so the three checkboxes below keep a consistent
+  // "remembers your choice" behavior as a group rather than only the new
+  // Grammar one persisting — the round's own truncated spec explicitly
+  // called out "localStorage persistence" as part of this feature.
+  // Spanish/English default to off (unchanged from SAC-047); Grammar
+  // defaults to on, since before this round its ⓘ icon was always visible
+  // whenever Spanish text was shown — defaulting it off would silently
+  // regress that for everyone on their very next visit.
+  const [showSpanish, setShowSpanish] = useState(() => {
+    try {
+      const saved = localStorage.getItem('showSpanishText')
+      return saved !== null ? saved === 'true' : false
+    } catch {
+      return false
+    }
+  })
+  const [showEnglish, setShowEnglish] = useState(() => {
+    try {
+      const saved = localStorage.getItem('showEnglishTranslation')
+      return saved !== null ? saved === 'true' : false
+    } catch {
+      return false
+    }
+  })
+  const [showGrammar, setShowGrammar] = useState(() => {
+    try {
+      const saved = localStorage.getItem('showGrammarExplanations')
+      return saved !== null ? saved === 'true' : true
+    } catch {
+      return true
+    }
+  })
   // SAC-048/078: pulses the Play button a fixed 3 times when a story becomes
   // ready, since removing "Tap to Begin" (v1.0t) means there's no longer an
   // unmissable prompt telling a first-time user where to start.
@@ -851,70 +882,111 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
           <p className="font-bold text-ink text-heading-2 truncate mb-3">{scenario}</p>
 
           <div className="mb-4">
-            <div className="flex items-center flex-wrap gap-4">
-              <label className="flex items-center gap-2 text-small text-ink-muted cursor-pointer">
+            {/* SAC-081: three independent checkboxes, one line where it fits
+                (Quick Translate moved to its own line below to make room —
+                four items no longer had to compete for the same row). */}
+            <div className="flex items-center flex-wrap gap-x-3 gap-y-2">
+              <label className="flex items-center gap-1.5 text-small text-ink-muted cursor-pointer">
                 <input
                   type="checkbox"
                   checked={showSpanish}
-                  onChange={(e) => setShowSpanish(e.target.checked)}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setShowSpanish(checked)
+                    try {
+                      localStorage.setItem('showSpanishText', checked ? 'true' : 'false')
+                    } catch {
+                      // Storage unavailable — the checkbox still works for this session.
+                    }
+                  }}
                 />
-                Display Spanish
+                Spanish text
               </label>
-              <label className="flex items-center gap-2 text-small text-ink-muted cursor-pointer">
+              <label className="flex items-center gap-1.5 text-small text-ink-muted cursor-pointer">
                 <input
                   type="checkbox"
                   checked={showEnglish}
-                  onChange={(e) => setShowEnglish(e.target.checked)}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setShowEnglish(checked)
+                    try {
+                      localStorage.setItem('showEnglishTranslation', checked ? 'true' : 'false')
+                    } catch {
+                      // Storage unavailable — the checkbox still works for this session.
+                    }
+                  }}
                 />
-                Display English
+                English translation
               </label>
-              <button
-                onClick={() => setShowQuickTranslate(true)}
-                className="min-h-[44px] px-2 text-small text-ink-muted hover:text-ink transition"
-              >
-                Quick Translate
-              </button>
+              <label className="flex items-center gap-1.5 text-small text-ink-muted cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showGrammar}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setShowGrammar(checked)
+                    try {
+                      localStorage.setItem('showGrammarExplanations', checked ? 'true' : 'false')
+                    } catch {
+                      // Storage unavailable — the checkbox still works for this session.
+                    }
+                  }}
+                />
+                Grammar
+              </label>
             </div>
-            {(showSpanish || showEnglish) && currentSentence && (
-              <div className="mt-2 bg-[#f9f9f9] border border-border rounded-control p-3">
-                {showSpanish && (
-                  <>
-                    <div className="flex items-start gap-2">
-                      <div className="flex items-start gap-1.5 flex-1">
-                        <span className="text-body font-bold text-ink shrink-0">{currentIndex + 1}.</span>
-                        <HoverableText
-                          text={currentSentence.spanish}
-                          vocabulary={storyVocabMap}
-                          className="text-body font-bold text-ink"
-                          showHoverTranslation={false}
-                        />
-                      </div>
-                      <button
-                        onClick={() => playTranscriptSentence(currentIndex)}
-                        title="Replay this sentence"
-                        className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg shrink-0 rounded-control text-ink-faint hover:text-primary hover:bg-primary-light transition"
-                      >
-                        🔊
-                      </button>
-                      <ExplanationIcon
-                        explanation={sentenceExplanations[currentIndex]}
-                        isOpen={showCurrentExplanation}
-                        onClick={() => setShowCurrentExplanation((prev) => !prev)}
-                        className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg shrink-0 rounded-control hover:bg-primary-light"
-                      />
-                    </div>
-                    {showCurrentExplanation && (
-                      <ExplanationPanel explanation={sentenceExplanations[currentIndex]} />
-                    )}
-                  </>
-                )}
-                {showSpanish && showEnglish && <hr className="my-2 border-border" />}
-                {showEnglish && (
-                  <p className="text-small text-ink-muted">
-                    {currentIndex + 1}. {currentSentence.english}
-                  </p>
-                )}
+            <button
+              onClick={() => setShowQuickTranslate(true)}
+              className="mt-1 min-h-[44px] px-2 text-small text-ink-muted hover:text-ink transition"
+            >
+              Quick Translate
+            </button>
+
+            {/* SAC-081: three color-coded blocks, always in this order
+                (Spanish → English → Grammar) regardless of which are
+                checked — each is its own independently-toggled block, not
+                sections of one shared box like the pre-SAC-081 layout. */}
+            {showSpanish && currentSentence && (
+              <div className="mt-2 bg-info-light border border-border rounded-control p-3">
+                <div className="flex items-start gap-2">
+                  <div className="flex items-start gap-1.5 flex-1">
+                    <span className="text-body font-bold text-ink shrink-0">{currentIndex + 1}.</span>
+                    <HoverableText
+                      text={currentSentence.spanish}
+                      vocabulary={storyVocabMap}
+                      className="text-body font-bold text-ink"
+                      showHoverTranslation={false}
+                    />
+                  </div>
+                  <button
+                    onClick={() => playTranscriptSentence(currentIndex)}
+                    title="Replay this sentence"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg shrink-0 rounded-control text-ink-faint hover:text-primary hover:bg-primary-light transition"
+                  >
+                    🔊
+                  </button>
+                  {showGrammar && (
+                    <ExplanationIcon
+                      explanation={sentenceExplanations[currentIndex]}
+                      isOpen={showCurrentExplanation}
+                      onClick={() => setShowCurrentExplanation((prev) => !prev)}
+                      className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg shrink-0 rounded-control hover:bg-primary-light"
+                    />
+                  )}
+                </div>
               </div>
+            )}
+
+            {showEnglish && currentSentence && (
+              <div className="mt-2 bg-warn-light border border-border rounded-control p-3">
+                <p className="text-small text-ink-muted">
+                  {currentIndex + 1}. {currentSentence.english}
+                </p>
+              </div>
+            )}
+
+            {showGrammar && showCurrentExplanation && sentenceExplanations[currentIndex] && (
+              <ExplanationPanel explanation={sentenceExplanations[currentIndex]} />
             )}
           </div>
 

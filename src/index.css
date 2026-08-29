@@ -27,6 +27,13 @@
   --color-error-light: #fef2f2;
   --color-warning-light: #fffbeb;
   --color-warning-text: #92400e;
+  /* SAC-081: light blue for the Display Spanish section's Spanish-text
+     block — no existing light-* token reads as genuinely blue
+     (primary-light is a minty teal, too close to success-light's green
+     for the two to read as distinct at a glance, which would defeat this
+     round's whole point). Matches the light-pastel weight of the other
+     *-light tokens above (Tailwind's blue-100). */
+  --color-info-light: #dbeafe;
 
   --radius-card: 1rem;
   --radius-control: 0.5rem;

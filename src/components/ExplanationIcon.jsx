@@ -28,13 +28,17 @@ export function ExplanationIcon({ explanation, isOpen, onClick, className = '' }
   )
 }
 
+// SAC-081: light green, matching this round's "Grammar = green" color
+// coding for the Display Spanish block — applied here rather than only at
+// that one call site, so the same content reads consistently (green =
+// grammar) everywhere it appears, including the Transcript's own ⓘ icons.
 export function ExplanationPanel({ explanation }) {
   if (!explanation) return null
 
   return (
-    <div className="mt-1 bg-primary-light rounded-control px-3 py-2 text-small text-ink">
+    <div className="mt-1 bg-success-light border border-border rounded-control px-3 py-2 text-small text-ink">
       <p className="mb-1.5">
-        <span className="font-semibold text-primary-text">&ldquo;{explanation.phrase}&rdquo;</span>
+        <span className="font-semibold text-success">&ldquo;{explanation.phrase}&rdquo;</span>
         {' — '}
         <span className="text-ink-muted">{explanation.literalTranslation}</span>
       </p>

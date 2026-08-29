@@ -38,6 +38,9 @@ export default {
           light: 'var(--color-warning-light)',
           text: 'var(--color-warning-text)',
         },
+        info: {
+          light: 'var(--color-info-light)',
+        },
       },
       borderRadius: {
         card: 'var(--radius-card)',

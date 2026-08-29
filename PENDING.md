@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (Prompt #036, SAC-080 shipped as v1.2b)
+## Last updated: 2026-08-29 (Prompt #037, SAC-081 shipped as v1.2c)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -494,6 +494,16 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Wrong component reference fixed:** the given spec targeted a nonexistent `SettingsModal.jsx` — added the toggle to `AboutModal.jsx` instead, this app's only settings surface and its first genuinely user-facing preference.
 - **Verified live with the real API instrumented** to observe the actual call sequence: Play → 1 request, Pause → 1 release, Regenerate (idle) → release with no immediate re-request, Play again → fresh request, navigate away → final release via unmount. All correct order, zero console errors. Toggle persists to `localStorage`, defaults to on.
 - Version bumped to v1.2b (round's own explicit target).
+
+### Shipped in v1.2c — Prompt #037, SAC-081 (Grammar Toggle Checkbox & Color-Coded Display Sections)
+- **Arrived self-labeled "#036," collided with SAC-080 already using that number — renumbered #037.**
+- **Truncated but judged fillable** (same call as SAC-077/078) — order, labels, gating rule, and layout constraint were all concrete; only exact colors were an open question, resolved via real design tokens rather than guessed hex.
+- **Three color-coded blocks, fixed order:** Spanish text (new `--color-info-light` token — no existing token actually reads as blue in this palette) → English translation (`bg-warn-light`, reused) → Grammar (`ExplanationPanel`, recolored `bg-success-light` globally, including the Transcript, for a consistent "green = grammar"). Replaces the old shared-box-with-`<hr>` layout.
+- **Two judgment calls, documented:** (1) extended localStorage persistence to all 3 checkboxes, not just Grammar, for group consistency — the truncated spec did mention persistence before cutting off; (2) recolored `ExplanationPanel` everywhere it's used, not just at this call site, for the same consistency reasoning.
+- **Real testing gotcha, worth remembering:** `bg-info-light` initially rendered fully transparent — not a code bug, the already-running Vite dev server had cached its Tailwind compilation from before the config edit. Restarting it resolved this immediately; confirmed via `getComputedStyle` before and after.
+- **"One line where possible" verified via a width sweep, not a single check:** fits on one line from 430px up; gracefully wraps (zero overflow) only below that, at the project's usual 390px test width — an unavoidable consequence of the requested label text at that exact width, not a bug.
+- **Verified live:** all three blocks render distinct colors; ⓘ icon/panel disappear immediately when Grammar is unchecked, even mid-open; all three checkbox states survive a page reload; zero console errors.
+- Version bumped to v1.2c (trailing letter — UI reorganization of existing features, not a new capability).
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
