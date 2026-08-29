@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (Prompt #037, SAC-081 shipped as v1.2c)
+## Last updated: 2026-08-29 (Prompt #038, SAC-083 shipped as v1.2d)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -505,11 +505,20 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Verified live:** all three blocks render distinct colors; ⓘ icon/panel disappear immediately when Grammar is unchecked, even mid-open; all three checkbox states survive a page reload; zero console errors.
 - Version bumped to v1.2c (trailing letter — UI reorganization of existing features, not a new capability).
 
+### Shipped in v1.2d — Prompt #038, SAC-083 (SAC-081 fixes + emojis, combined; SAC-082 was never built separately — its scope was folded into this round)
+- **Bug 1 fixed — Grammar checkbox required an extra click:** SAC-081 built "check the box → a ⓘ icon appears → click the icon to see content" as a deliberate two-step design; the bug report accurately described that reading as broken once actually used. Removed the click-through step entirely — checking Grammar now shows the panel the instant its data finishes loading, matching Spanish/English's direct behavior. The now-dead `showCurrentExplanation` state and the icon in this block were deleted. The Transcript's own ⓘ icons are untouched (still needed there — can't show every sentence's explanation at once).
+- **Bug 2 fixed — Quick Translate repositioned** from directly under the checkboxes to below the sentence-progress bar.
+- **Scenario emojis added:** each of the 8 pre-built scenarios (👋🍽️🗺️🤝✈️⚕️🛍️🆘) on picker cards and the story header, via one shared `getScenarioEmoji()` export (falls back to ✨ for custom topics) rather than a duplicated list. Checkbox labels gained 🇪🇸/🇬🇧/💡 prefixes.
+- **Real test-script false negative caught and resolved, not reported as a bug:** initial verification of the Grammar fix appeared to fail even after confirming (via network interception) the backend returned correct data. Traced via a render-level trace to `showGrammar` defaulting to `true` (an intentional SAC-081 default) — the test's unconditional checkbox click was toggling it *off*, not on. Corrected test confirmed the fix works.
+- **Real pre-existing issue discovered, flagged not fixed:** `index.html` has loaded Tailwind from `cdn.tailwindcss.com` since the project's literal first commit — redundant next to the real PostCSS build, functionally harmless, but a `console.warn` on every page load that's silently evaded every "zero console errors" check this whole session (filtered for `error`, not `warn`). See SAC-084 below.
+- Version bumped to v1.2d.
+
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
 2. Set a real `VITE_FORMSPREE_URL` so the email capture form goes live (code is shipped but no-ops without it)
 3. SAC-068 (reserved, not yet defined) — the #026 deploy commit message referenced "SAC-052–068," one higher than the 067 actually specified in Prompt #026's own content; no 068 spec was ever given, so nothing was built against it. Flagging here rather than silently inventing scope for a number that was never defined.
-4. SAC-080 (idea, not yet built): cache `/api/generate-sentence-explanations` responses, same `(scenario, difficulty)`-keyed shape as `story_cache` — SAC-079 shipped this deliberately uncached, so a warmed Beginner scenario replayed by many different users currently re-generates the same explanations from scratch every time, a real ongoing cost that caching would eliminate for the 8 pre-built scenarios (custom topics are one-off text anyway, so wouldn't benefit the same way).
+4. SAC-085 (idea, not yet built; originally logged as "SAC-080" when written during the SAC-079 round — that number was reassigned before this idea was ever built, since the actual next round's own prompt independently claimed SAC-080 for the real Screen Wake Lock feature that shipped in v1.2b; renumbered here to the next free ID rather than leave a real collision standing, same resolution pattern as the SAC-014-E/F/G and roadmap-doc collisions much earlier in this project): cache `/api/generate-sentence-explanations` responses, same `(scenario, difficulty)`-keyed shape as `story_cache` — SAC-079 shipped this deliberately uncached, so a warmed Beginner scenario replayed by many different users currently re-generates the same explanations from scratch every time, a real ongoing cost that caching would eliminate for the 8 pre-built scenarios (custom topics are one-off text anyway, so wouldn't benefit the same way).
+5. SAC-084 (idea, not yet built): remove the redundant `<script src="https://cdn.tailwindcss.com">` from `index.html` — present since the project's first commit, functionally harmless alongside the real PostCSS-compiled Tailwind build, but adds an external dependency, extra page weight, and a `console.warn` on every load that's evaded every "zero console errors" check made anywhere in this project's history (see CLAUDE.md Known Issues #5). Should be a safe, isolated removal, but warrants its own go-ahead and a visual regression pass rather than being bundled into an unrelated round.
 
 ---
 

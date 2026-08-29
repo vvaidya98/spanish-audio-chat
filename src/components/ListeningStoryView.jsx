@@ -6,6 +6,7 @@ import LoadingSpinner from './LoadingSpinner'
 import QuickTranslateModal from './QuickTranslateModal'
 import RegenerateModal from './RegenerateModal'
 import { ExplanationIcon, ExplanationPanel } from './ExplanationIcon'
+import { getScenarioEmoji } from './ScenarioSelector'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
 import { apiFetch } from '../api'
@@ -173,13 +174,6 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // effect below), so a slower Advanced story's explanations never show up
   // stale against a story that's since been regenerated.
   const [sentenceExplanations, setSentenceExplanations] = useState({})
-  // Display Spanish only ever shows one sentence (currentIndex) at a time,
-  // so a bare boolean suffices — deliberately doesn't reset when
-  // currentIndex changes, matching the existing showSpanish/showEnglish
-  // checkboxes' own documented behavior just above (SAC-047: "they don't
-  // reset as the sentence changes, only the content inside the box
-  // updates").
-  const [showCurrentExplanation, setShowCurrentExplanation] = useState(false)
   // Transcript shows one sentence's explanation open at a time across the
   // whole list — same single-nullable-index pattern openTranslationIdx
   // already uses for the 🌐 toggle just below, where opening one implicitly
@@ -879,7 +873,13 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
 
       {story && (
         <>
-          <p className="font-bold text-ink text-heading-2 truncate mb-3">{scenario}</p>
+          {/* SAC-083: getScenarioEmoji() falls back to ✨ for any title it
+              doesn't recognize, which a custom topic's free-form text
+              naturally always is — no separate custom-vs-pre-built branch
+              needed here. */}
+          <p className="font-bold text-ink text-heading-2 truncate mb-3">
+            {getScenarioEmoji(scenario)} {scenario}
+          </p>
 
           <div className="mb-4">
             {/* SAC-081: three independent checkboxes, one line where it fits
@@ -900,7 +900,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                     }
                   }}
                 />
-                Spanish text
+                🇪🇸 Spanish text
               </label>
               <label className="flex items-center gap-1.5 text-small text-ink-muted cursor-pointer">
                 <input
@@ -916,7 +916,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                     }
                   }}
                 />
-                English translation
+                🇬🇧 English translation
               </label>
               <label className="flex items-center gap-1.5 text-small text-ink-muted cursor-pointer">
                 <input
@@ -932,20 +932,24 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                     }
                   }}
                 />
-                Grammar
+                💡 Grammar
               </label>
             </div>
-            <button
-              onClick={() => setShowQuickTranslate(true)}
-              className="mt-1 min-h-[44px] px-2 text-small text-ink-muted hover:text-ink transition"
-            >
-              Quick Translate
-            </button>
 
             {/* SAC-081: three color-coded blocks, always in this order
                 (Spanish → English → Grammar) regardless of which are
                 checked — each is its own independently-toggled block, not
-                sections of one shared box like the pre-SAC-081 layout. */}
+                sections of one shared box like the pre-SAC-081 layout.
+                SAC-083 fix: Grammar's block now shows the instant the
+                checkbox is checked (once its explanation has finished
+                loading), matching how the Spanish/English checkboxes
+                already behave directly — the earlier version required an
+                extra click on a ⓘ icon after checking the box, which read
+                as "the checkbox doesn't do anything." The icon (and the
+                click-to-toggle state it needed) is gone from this block;
+                the Transcript's own ⓘ icons are unaffected and still work
+                the click-to-reveal way, since showing every sentence's
+                explanation there at once would be a wall of green boxes. */}
             {showSpanish && currentSentence && (
               <div className="mt-2 bg-info-light border border-border rounded-control p-3">
                 <div className="flex items-start gap-2">
@@ -965,14 +969,6 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                   >
                     🔊
                   </button>
-                  {showGrammar && (
-                    <ExplanationIcon
-                      explanation={sentenceExplanations[currentIndex]}
-                      isOpen={showCurrentExplanation}
-                      onClick={() => setShowCurrentExplanation((prev) => !prev)}
-                      className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg shrink-0 rounded-control hover:bg-primary-light"
-                    />
-                  )}
                 </div>
               </div>
             )}
@@ -985,16 +981,28 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
               </div>
             )}
 
-            {showGrammar && showCurrentExplanation && sentenceExplanations[currentIndex] && (
+            {showGrammar && sentenceExplanations[currentIndex] && (
               <ExplanationPanel explanation={sentenceExplanations[currentIndex]} />
             )}
           </div>
 
-          <div className="mb-6">
+          <div className="mb-2">
             <div className="h-2 bg-border rounded-full overflow-hidden">
               <div className="h-full bg-primary transition-all" style={{ width: `${progressPercent}%` }} />
             </div>
             <p className="text-small text-ink-muted text-center mt-1">{sentenceLabel}</p>
+          </div>
+
+          {/* SAC-083: moved here from just below the checkboxes — sat
+              awkwardly wedged between the checkbox row and the color blocks
+              before. */}
+          <div className="mb-6 text-center">
+            <button
+              onClick={() => setShowQuickTranslate(true)}
+              className="min-h-[44px] px-2 text-small text-ink-muted hover:text-ink transition"
+            >
+              Quick Translate
+            </button>
           </div>
 
           {playStatus === 'finished' && (

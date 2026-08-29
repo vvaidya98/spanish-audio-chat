@@ -4,37 +4,55 @@ import CustomTopicForm from './CustomTopicForm'
 export const DEFAULT_SCENARIOS = [
   {
     title: 'Introducing Yourself',
-    context: 'Greet someone and introduce yourself'
+    context: 'Greet someone and introduce yourself',
+    emoji: '👋',
   },
   {
     title: 'Ordering at a Restaurant',
-    context: 'You\'re hungry and want to order food'
+    context: 'You\'re hungry and want to order food',
+    emoji: '🍽️',
   },
   {
     title: 'Asking for Directions',
-    context: 'You\'re lost and need help finding your way'
+    context: 'You\'re lost and need help finding your way',
+    emoji: '🗺️',
   },
   {
     title: 'Making a New Friend',
-    context: 'Chat and get to know someone new'
+    context: 'Chat and get to know someone new',
+    emoji: '🤝',
   },
   {
     title: 'At the Airport/Hotel',
-    context: 'Check in, ask about your flight or your room'
+    context: 'Check in, ask about your flight or your room',
+    emoji: '✈️',
   },
   {
     title: 'At a Pharmacy/Doctor',
-    context: 'Describe how you feel and ask for help'
+    context: 'Describe how you feel and ask for help',
+    emoji: '⚕️',
   },
   {
     title: 'Shopping in a Store',
-    context: 'Ask about prices, sizes, and pay for items'
+    context: 'Ask about prices, sizes, and pay for items',
+    emoji: '🛍️',
   },
   {
     title: 'Asking for Help/Emergency',
-    context: 'Get help quickly when something goes wrong'
+    context: 'Get help quickly when something goes wrong',
+    emoji: '🆘',
   },
 ]
+
+// SAC-083: shared lookup so ListeningStoryView's story header can show the
+// same emoji as the picker card without duplicating this list — unlike the
+// frontend/backend WARMUP_SCENARIOS duplication (no shared module possible
+// there), both call sites here are already in the same frontend bundle.
+// Falls back to ✨ for a custom topic (matching the "Create Custom Topic"
+// card's own icon below) since free-form user text has no fixed mapping.
+export function getScenarioEmoji(title) {
+  return DEFAULT_SCENARIOS.find((s) => s.title === title)?.emoji || '✨'
+}
 
 // SAC-071: showCustomTopic/onCustomStorySelected gate the "Create Custom
 // Topic" card behind an explicit prop rather than always rendering it — this
@@ -62,7 +80,7 @@ export default function ScenarioSelector({
     return (
       <div>
         <div className="mb-6 p-6 bg-surface border-2 border-border rounded-card shadow-sm">
-          <p className="font-bold text-ink text-heading-1 mb-2">{pendingScenario.title}</p>
+          <p className="font-bold text-ink text-heading-1 mb-2">{pendingScenario.emoji} {pendingScenario.title}</p>
           <p className="text-ink-muted text-body">{pendingScenario.context}</p>
         </div>
 
@@ -111,6 +129,7 @@ export default function ScenarioSelector({
               onClick={() => (skipConfirm ? onSelectScenario(s.title) : setPendingScenario(s))}
               className="p-4 bg-surface border-2 border-border rounded-card shadow-sm hover:border-primary hover:shadow-md transition text-left"
             >
+              <span className="text-xl mb-1 block">{s.emoji}</span>
               <p className="font-bold text-ink text-heading-2">{s.title}</p>
               <p className="text-ink-muted text-small mt-1">{s.context}</p>
             </button>
