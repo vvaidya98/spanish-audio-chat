@@ -93,6 +93,12 @@ function featureForEndpoint(endpoint) {
   if (endpoint === '/api/story-questions') return 'Questions';
   if (endpoint === '/api/translate') return 'Translation';
   if (endpoint === '/api/generate-custom-story' || endpoint === '/api/generate-suggested-topics') return 'Custom Stories';
+  // SAC-079: own bucket rather than folding into 'Stories' — a distinct,
+  // separately-visible cost driver (fires on every story load/regenerate
+  // in the background, independent of whether a user ever clicks ⓘ),
+  // matching this project's existing precedent of giving custom stories
+  // their own bucket for the same "genuinely distinct cost" reason.
+  if (endpoint === '/api/generate-sentence-explanations') return 'Explanations';
   return 'Conversation';
 }
 
@@ -460,6 +466,109 @@ app.post('/api/generate-story', async (req, res) => {
   }
 });
 
+// SAC-079: for each sentence in an already-generated story, a short note on
+// how its structure differs from English — phrase, literal translation,
+// natural English syntax, and a one-line pattern observation. Called by the
+// frontend in the background right after a story loads/regenerates (never
+// blocks Play), not folded into story generation itself, since the whole
+// point is Play stays available the instant the story text is back.
+// Deliberately uncached (unlike story_cache/questionsCache) — not asked for
+// this round, and a real, disclosed cost tradeoff worth flagging: a warmed
+// Beginner scenario replayed by many different users re-generates
+// explanations fresh every single time. Parked as a follow-up idea in
+// PENDING.md rather than silently built.
+async function generateSentenceExplanations(sentences, difficulty) {
+  const difficultyContext = {
+    Beginner: 'a beginner Spanish learner, focused on simple, common patterns',
+    Intermediate: 'an intermediate Spanish learner, ready for more nuanced structural differences',
+    Advanced: 'an advanced Spanish learner, including complex or subtle sentence structures',
+  };
+
+  // 0-indexed in both the numbered list shown to Claude AND the requested
+  // "sentenceIndex" field, deliberately — the frontend keys its lookup by
+  // the same 0-indexed `currentIndex`/`idx` used everywhere else in
+  // ListeningStoryView.jsx, so any mismatch here (e.g. a 1-indexed list
+  // alongside a 0-indexed sentenceIndex request, which is what the
+  // originally-given version of this prompt's code would have produced)
+  // risks Claude echoing back the same indexing it was just shown.
+  const sentencesText = sentences.map((s, idx) => `${idx}. ${s}`).join('\n');
+
+  const message = await client.messages.create({
+    model: 'claude-opus-4-8',
+    // This project has hit max_tokens truncation on structured-JSON
+    // endpoints before at tighter budgets than this (see the v1.0d and
+    // SAC-071 incidents) — erring generous for up to 10 sentences x 4
+    // short fields each.
+    max_tokens: 3000,
+    messages: [
+      {
+        role: 'user',
+        content: `For each Spanish sentence below, briefly explain how its structure differs from English — plain, non-jargon language, for ${difficultyContext[difficulty]}.
+
+Sentences (0-indexed):
+${sentencesText}
+
+Respond with ONLY a JSON array (no markdown fences, no extra text), one object per sentence, in exactly this shape:
+
+[
+  {
+    "sentenceIndex": 0,
+    "phrase": "le trae el menú",
+    "literalTranslation": "to-her brings the menu",
+    "englishSyntax": "brings her the menu",
+    "pattern": "Spanish puts the object pronoun before the verb, not after it like English does."
+  }
+]
+
+"sentenceIndex" must be the 0-indexed position matching the numbered list above (the first sentence is 0). Include every sentence, even simple ones where the difference is small — pick whatever's most notable about that sentence's construction. "phrase" is a short excerpt (not the whole sentence) that best shows the difference.`,
+      },
+    ],
+  });
+
+  if (message.stop_reason === 'max_tokens') {
+    console.warn('/api/generate-sentence-explanations: response hit max_tokens, JSON may be truncated');
+  }
+
+  const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+  // extractJson() (used elsewhere in this file) only matches a `{...}`
+  // object — this response is a top-level `[...]` array, so it needs its
+  // own regex rather than reusing that helper.
+  const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+  const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
+  if (!Array.isArray(parsed)) {
+    throw new Error('Explanations response was not a JSON array');
+  }
+
+  logApiCall('/api/generate-sentence-explanations', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
+  return parsed;
+}
+
+/**
+ * POST /api/generate-sentence-explanations
+ * SAC-079: sentences + difficulty in, one grammar-pattern explanation per
+ * sentence out. Called in the background right after a story is displayed —
+ * see ListeningStoryView.jsx's effect on `story`.
+ */
+app.post('/api/generate-sentence-explanations', async (req, res) => {
+  const { sentences, difficulty = 'Beginner' } = req.body;
+
+  if (!Array.isArray(sentences) || sentences.length === 0) {
+    return res.status(400).json({ error: 'sentences array is required' });
+  }
+  if (!DIFFICULTY_LEVELS.includes(difficulty)) {
+    return res.status(400).json({ error: 'Invalid difficulty level' });
+  }
+
+  console.log(`[explanations] Generating for ${sentences.length} sentences (${difficulty})`);
+  try {
+    const explanations = await generateSentenceExplanations(sentences, difficulty);
+    res.json({ explanations });
+  } catch (error) {
+    console.error('Error in /api/generate-sentence-explanations:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate explanations' });
+  }
+});
+
 /**
  * POST /api/story-questions
  * Generates 2-3 multiple-choice comprehension questions for a given story.
@@ -781,7 +890,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.1f', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.2a', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {

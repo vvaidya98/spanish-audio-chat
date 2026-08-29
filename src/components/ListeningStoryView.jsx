@@ -5,6 +5,7 @@ import EmailCapture from './EmailCapture'
 import LoadingSpinner from './LoadingSpinner'
 import QuickTranslateModal from './QuickTranslateModal'
 import RegenerateModal from './RegenerateModal'
+import { ExplanationIcon, ExplanationPanel } from './ExplanationIcon'
 import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
 import { apiFetch } from '../api'
@@ -132,6 +133,27 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   const [showQuickTranslate, setShowQuickTranslate] = useState(false)
   // SAC-065: confirmation gate in front of Regenerate Story.
   const [showRegenerateModal, setShowRegenerateModal] = useState(false)
+  // SAC-079: keyed by 0-indexed sentence position (not a plain array) so a
+  // response with gaps or out-of-order entries — Claude skipping a
+  // "trivial" sentence despite being asked not to, or returning entries out
+  // of sequence — still maps each explanation to the correct sentence
+  // rather than silently shifting everything by however many are
+  // missing/reordered. Reset to {} at the start of every new fetch (see the
+  // effect below), so a slower Advanced story's explanations never show up
+  // stale against a story that's since been regenerated.
+  const [sentenceExplanations, setSentenceExplanations] = useState({})
+  // Display Spanish only ever shows one sentence (currentIndex) at a time,
+  // so a bare boolean suffices — deliberately doesn't reset when
+  // currentIndex changes, matching the existing showSpanish/showEnglish
+  // checkboxes' own documented behavior just above (SAC-047: "they don't
+  // reset as the sentence changes, only the content inside the box
+  // updates").
+  const [showCurrentExplanation, setShowCurrentExplanation] = useState(false)
+  // Transcript shows one sentence's explanation open at a time across the
+  // whole list — same single-nullable-index pattern openTranslationIdx
+  // already uses for the 🌐 toggle just below, where opening one implicitly
+  // closes any other.
+  const [openExplanationIdx, setOpenExplanationIdx] = useState(null)
 
   // SAC-071: captured once at mount (this component always remounts via a
   // fresh `key` for a new custom session — see App.jsx — so these never need
@@ -326,6 +348,50 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     return () => {
       cancelAnimationFrame(raf)
       if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
+    }
+  }, [story])
+
+  // SAC-079: fires on the same trigger as the pulse effect above — every new
+  // `story` object, i.e. initial load AND every regenerate — since a
+  // regenerated story's sentences are entirely different text needing
+  // entirely new explanations. Runs in the background: Play is already
+  // usable the moment `story` itself lands, this fetch never gates it.
+  // `stale` guards against a slower-to-resolve explanations request (e.g.
+  // for a long Advanced story) landing after the user has already
+  // regenerated again, which would otherwise overwrite the newer story's
+  // (still-empty) explanations with the older story's — the same isStale()
+  // pattern loadStory()'s own background /api/story-questions fetch uses.
+  useEffect(() => {
+    if (!story || !story.sentences || story.sentences.length === 0) return
+    let stale = false
+    setSentenceExplanations({})
+
+    ;(async () => {
+      try {
+        const spanish = story.sentences.map((s) => s.spanish)
+        const response = await apiFetch('/api/generate-sentence-explanations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sentences: spanish, difficulty: difficultyRef.current }),
+        })
+        if (!response.ok || stale) return
+        const data = await response.json()
+        if (stale) return
+        const byIndex = {}
+        ;(data.explanations || []).forEach((exp) => {
+          if (typeof exp.sentenceIndex === 'number') byIndex[exp.sentenceIndex] = exp
+        })
+        setSentenceExplanations(byIndex)
+      } catch (err) {
+        if (stale) return
+        // Fail silently — explanations are a nice-to-have; the ⓘ icons just
+        // stay permanently disabled for this story, nothing else breaks.
+        console.error('Error loading sentence explanations:', err)
+      }
+    })()
+
+    return () => {
+      stale = true
     }
   }, [story])
 
@@ -722,24 +788,35 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
             {(showSpanish || showEnglish) && currentSentence && (
               <div className="mt-2 bg-[#f9f9f9] border border-border rounded-control p-3">
                 {showSpanish && (
-                  <div className="flex items-start gap-2">
-                    <div className="flex items-start gap-1.5 flex-1">
-                      <span className="text-body font-bold text-ink shrink-0">{currentIndex + 1}.</span>
-                      <HoverableText
-                        text={currentSentence.spanish}
-                        vocabulary={storyVocabMap}
-                        className="text-body font-bold text-ink"
-                        showHoverTranslation={false}
+                  <>
+                    <div className="flex items-start gap-2">
+                      <div className="flex items-start gap-1.5 flex-1">
+                        <span className="text-body font-bold text-ink shrink-0">{currentIndex + 1}.</span>
+                        <HoverableText
+                          text={currentSentence.spanish}
+                          vocabulary={storyVocabMap}
+                          className="text-body font-bold text-ink"
+                          showHoverTranslation={false}
+                        />
+                      </div>
+                      <button
+                        onClick={() => playTranscriptSentence(currentIndex)}
+                        title="Replay this sentence"
+                        className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg shrink-0 rounded-control text-ink-faint hover:text-primary hover:bg-primary-light transition"
+                      >
+                        🔊
+                      </button>
+                      <ExplanationIcon
+                        explanation={sentenceExplanations[currentIndex]}
+                        isOpen={showCurrentExplanation}
+                        onClick={() => setShowCurrentExplanation((prev) => !prev)}
+                        className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg shrink-0 rounded-control hover:bg-primary-light"
                       />
                     </div>
-                    <button
-                      onClick={() => playTranscriptSentence(currentIndex)}
-                      title="Replay this sentence"
-                      className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg shrink-0 rounded-control text-ink-faint hover:text-primary hover:bg-primary-light transition"
-                    >
-                      🔊
-                    </button>
-                  </div>
+                    {showCurrentExplanation && (
+                      <ExplanationPanel explanation={sentenceExplanations[currentIndex]} />
+                    )}
+                  </>
                 )}
                 {showSpanish && showEnglish && <hr className="my-2 border-border" />}
                 {showEnglish && (
@@ -837,7 +914,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
 
           {showTranscript && (
             <div className="mb-6 bg-surface rounded-card shadow-sm border border-border p-6">
-              <p className="text-ink-muted text-small font-semibold mb-3">SPANISH — click 🔊 to play a sentence, 🌐 for its translation, or click a word for its definition</p>
+              <p className="text-ink-muted text-small font-semibold mb-3">SPANISH — click 🔊 to play a sentence, 🌐 for its translation, ⓘ for how it's constructed, or click a word for its definition</p>
               {(story.sentences || []).map((s, idx) => (
                 <div key={idx} className="mb-6 last:mb-0">
                   <div className="flex items-start gap-2">
@@ -863,11 +940,20 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                         >
                           🌐
                         </button>
+                        <ExplanationIcon
+                          explanation={sentenceExplanations[idx]}
+                          isOpen={openExplanationIdx === idx}
+                          onClick={() => setOpenExplanationIdx((prev) => (prev === idx ? null : idx))}
+                          className="ml-1 text-lg align-middle"
+                        />
                       </span>
                       {openTranslationIdx === idx && (
                         <div className="mt-1 inline-block bg-primary-light rounded-control px-3 py-1 text-small text-primary-text">
                           <span className="font-semibold">Sentence {idx + 1}:</span> {s.english}
                         </div>
+                      )}
+                      {openExplanationIdx === idx && (
+                        <ExplanationPanel explanation={sentenceExplanations[idx]} />
                       )}
                     </div>
                   </div>
