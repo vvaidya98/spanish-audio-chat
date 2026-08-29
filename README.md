@@ -1,4 +1,4 @@
-# Conversation Amigo — v1.1d
+# Conversation Amigo — v1.1e
 
 A beginner-friendly Spanish conversation practice app with audio voice chat powered by Claude.
 
@@ -6,7 +6,7 @@ A beginner-friendly Spanish conversation practice app with audio voice chat powe
 **Tech Stack:** React 18 + Vite (frontend) | Node.js + Express (backend proxy)  
 **Live app:** https://spanish-audio-chat.netlify.app  
 **Backend:** https://spanish-audio-chat-production.up.railway.app  
-**Current Version:** v1.1d
+**Current Version:** v1.1e
 
 ---
 
@@ -318,7 +318,7 @@ Environment variables (`ANTHROPIC_API_KEY`, `NODE_ENV=production`, `FRONTEND_URL
 ✅ Manual "Tap to Speak" / "Tap to Send" flow + 3-speed repeat (1x/0.8x/0.6x) *(Conversation Mode, currently disabled)*  
 ✅ End-of-conversation summary — full transcript, highlighted errors, corrections *(Conversation Mode, currently disabled)*  
 ✅ Listening Mode — scenario cards skip straight to loading (no confirm step); 7-10 sentence stories (10-15 words each, varied vocabulary); controls are First (⏮) / Previous (◀) / Play-Pause (▶/⏸) / Next (▶) / Last (⏩) with a "Sentence X of Y" progress bar; speed x1.0/x0.8/x0.6/x0.4 (x0.6 default); **Clarity Mode** (Off/Low/Medium/High/Ultra) adds a pause after connector words ("y"/"pero"/"porque"/"cuando"/"mientras"/"si"), duration scales with the level; explicit Spanish voice selection preferring Colombian/Latin American variants (es-CO → es-419 → es-MX → es-US → es-ES) before Spain Spanish, plus a tuned start-of-speech delay for crisper syllables; independent "Display Spanish"/"Display English" checkboxes (numbered to match the sentence, 🔊 replay icon + click-word definitions on the Spanish side) alongside a toggle-based Comprehension Check / Transcript (hidden until tapped); transcript has per-sentence 🔊 play / 🌐 translate icons + click-word definitions; global sticky footer nav (Home / Listening / Conversation / Translation / History) on every screen  
-✅ Play button first-load pulse — draws attention to Play on a story's first load, stops for good once clicked (persists across a page reload via `sessionStorage`, keyed per scenario), pulses again fresh for a never-played scenario  
+✅ Play button pulse — draws attention to Play on a story's first load, pulsing a fixed 3 times (~1.8s) then stopping automatically, or stopping immediately if clicked first (persists across a page reload via `sessionStorage`, keyed per scenario); pulses again fresh for a never-played scenario, and also on every Regenerate regardless of prior play history  
 ✅ Regenerate Story — a confirmation modal guards the small 🔄 icon near the bottom (since regenerating discards current progress with no undo) and lets you pick a Beginner/Intermediate/Advanced difficulty for the new story, defaulting to the current one — works for both pre-built scenarios and custom topics alike; always generates fresh, bypassing the cache even for an already-cached difficulty  
 ✅ Vocabulary Matching — one word at a time (easiest first), word audio auto-plays as each word appears, green pill-style answer options, success/error tones, example phrase + sentence shown after a correct match, manual "Next →" (no auto-advance timer)  
 ✅ Story caching — SQLite-backed (`./data/api_usage.db`), keyed on `(scenario, difficulty)` so each scenario can hold up to 3 independently-cached versions; a background startup routine automatically pre-generates the Beginner difficulty for all 8 scenarios within a few minutes of every deploy (Intermediate/Advanced generate on-demand the first time requested, then stay cached), so the first real visit after a fresh deploy loads from cache too, not a live ~20s generation (Railway's filesystem is ephemeral across actual redeploys, same as this project's other server-side caches — the win here is the automatic re-warm on every deploy, not the cache surviving between them)  
@@ -387,8 +387,8 @@ The app emphasizes **communication over perfection**. Claude will accept imperfe
 
 ## Development
 
-**Live in production as of v1.1d**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
+**Live in production as of v1.1e**, verified end-to-end against the real deployed URLs (not just localhost). Next phase: wire up GitHub-connected auto-deploy (SAC-017), then resume feature work.
 
 ---
 
-**Built by Vinay Vaidya | v1.1d | Last updated: 2026-08-29**
+**Built by Vinay Vaidya | v1.1e | Last updated: 2026-08-29**

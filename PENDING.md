@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (Prompt #032, SAC-076 shipped as v1.1d)
+## Last updated: 2026-08-29 (Prompt #033, SAC-078 shipped as v1.1e)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -460,6 +460,15 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Verified live:** Regenerate modal shows all 3 options, defaults to Beginner, and correctly remembers the last-selected difficulty on reopen; regenerating at Advanced produces genuinely more complex content (verified by diffing actual sentence text — subjunctive forms like "arruine"/"pudiera"/"acabaran" present in Advanced output, absent from Beginner); a fresh non-regenerate load of an already-warmed scenario hits the SQLite cache in ~70ms; custom-topic regenerate-with-difficulty-change works end-to-end with zero console errors. Also confirmed (not assumed) that Regenerate has always unconditionally bypassed the story cache, before and unrelated to this round — an initial test expectation that switching back to a previously-generated difficulty would be a fast cache hit was itself wrong, corrected after reading `/api/generate-story`'s actual route logic.
 - Version bumped to v1.1d across all 4 standard locations + `package-lock.json` synced via `npm install`.
 - **Supersedes the long-parked SAC-030** ("Difficulty selector") — see below, now checked off.
+
+### Shipped in v1.1e — Prompt #033, SAC-078 (Limit Play Button Pulse to 3 Iterations)
+- **Sent mid-wait on the v1.1d Railway deploy** (see below) — worked in parallel since it's an independent frontend-only fix, no dependency on that deploy landing.
+- **Arrived truncated again** ("[Complete CSS animation specs, testing checklist, edge cases, deployment steps]") but everything needed was already unambiguous — exact numeric targets (0.6s × 3 = 1.8s), a named new state, a concrete CSS directive — built rather than asked.
+- **Real fix, not just a longer timer:** the old pulse (`animation: playButtonPulse 1.2s ease-in-out infinite`) had no built-in stop at all — it relied entirely on a boolean flipping to `false` to remove the class. Changed the CSS itself to `animation: playButtonPulse 0.6s ease-in-out 3 forwards` — finite at the CSS level, not something JS has to get right every time.
+- **State redesign:** `isFirstLoad` (one persistent boolean) replaced with `shouldPulseRef` (eligibility, computed fresh each `loadStory()` call: `regenerate || !hasAlreadyPlayed(scenario)`) + a new `pulseAnimationActive` state (the actual visual toggle, driven by a `useEffect` keyed on the `story` object — a fresh reference on every load and regenerate). Toggling the class off then back on goes through `requestAnimationFrame` rather than straight to `true`, since a same-tick off/on doesn't force the browser to replay a CSS animation — a real paint tick has to land in between.
+- **Deliberately reverses a prior decision, flagged not silent:** v1.0u explicitly suppressed the pulse after Regenerate; this round's "Regenerate/new story → pulses 3x again" is an unambiguous behavior change, not a bug report — removed the old suppression.
+- **Verified live:** fresh scenario pulses immediately, CSS class confirmed gone by ~2s via direct `getComputedStyle` (not just eyeballing); real click stops it within ~150ms; Regenerate on an already-played scenario re-triggers a full pulse; revisiting a genuinely already-played (actually clicked, not just loaded) scenario shows no pulse.
+- Version bumped to v1.1e.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

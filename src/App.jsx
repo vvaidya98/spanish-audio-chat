@@ -199,7 +199,7 @@ function App() {
               onClick={() => setShowAboutModal(true)}
               className="text-xs text-ink-faint hover:text-ink-muted transition"
             >
-              v1.1d
+              v1.1e
             </button>
           </div>
 

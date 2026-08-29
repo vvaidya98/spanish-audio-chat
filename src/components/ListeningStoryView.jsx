@@ -46,8 +46,9 @@ function markAsPlayed(scenario) {
   try {
     sessionStorage.setItem(playedStorageKey(scenario), 'true')
   } catch {
-    // Storage unavailable (private mode, etc.) — isFirstLoad still works via
-    // component state, it just won't survive a reload in that case.
+    // Storage unavailable (private mode, etc.) — the pulse-eligibility check
+    // still works via hasAlreadyPlayed's try/catch returning false, it just
+    // won't survive a reload in that case.
   }
 }
 
@@ -103,13 +104,25 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // sentence changes, only the content inside the box updates.
   const [showSpanish, setShowSpanish] = useState(false)
   const [showEnglish, setShowEnglish] = useState(false)
-  // SAC-048: pulses the Play button until the user's first real interaction
-  // with it, since removing "Tap to Begin" (v1.0t) means there's no longer
-  // an unmissable prompt telling a first-time user where to start. Lazily
-  // initialized from sessionStorage (see markAsPlayed/hasAlreadyPlayed above)
-  // so a page reload mid-story doesn't bring the pulse back for a story
-  // whose Play button the user already found.
-  const [isFirstLoad, setIsFirstLoad] = useState(() => !hasAlreadyPlayed(scenario))
+  // SAC-048/078: pulses the Play button a fixed 3 times when a story becomes
+  // ready, since removing "Tap to Begin" (v1.0t) means there's no longer an
+  // unmissable prompt telling a first-time user where to start.
+  // `pulseAnimationActive` is purely the visual on/off switch for the
+  // `.play-button-pulse` CSS class (see index.css — the CSS animation's own
+  // `3`-iteration count, not this timeout, is what actually stops it after
+  // 1.8s; the timeout here is a redundant safety net + lets a real click
+  // stop it early). Eligibility (should THIS particular story-load pulse at
+  // all) is tracked separately via `shouldPulseRef`, computed fresh in
+  // loadStory() each time: pulse on any first-ever load of a never-played
+  // scenario (persisted via sessionStorage, see markAsPlayed/hasAlreadyPlayed
+  // above, so a page reload doesn't bring it back), AND on every Regenerate
+  // regardless of prior play history (SAC-078 — reverses the v1.0u decision
+  // to suppress the pulse after Regenerate, since the prompt for this round
+  // explicitly asked for a fresh 3x pulse on every new story, not just the
+  // very first one).
+  const [pulseAnimationActive, setPulseAnimationActive] = useState(false)
+  const shouldPulseRef = useRef(false)
+  const pulseTimeoutRef = useRef(null)
   // SAC-052/069: Clarity Mode level (off/low/medium/high/ultra). Default off,
   // mirrored into a ref so the async speak chain always reads the current
   // value (changing level mid-playback applies starting with the next
@@ -218,6 +231,11 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   const loadStory = async (isStale, regenerate = false) => {
     setLoading(true)
     setError('')
+    // SAC-078: computed once per call, independent of which of the three
+    // fetch branches below actually runs — a regenerate always pulses; a
+    // non-regenerate load only pulses if this exact scenario has never been
+    // played in this tab session.
+    shouldPulseRef.current = regenerate || !hasAlreadyPlayed(scenario)
 
     try {
       let storyResult
@@ -281,6 +299,31 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
       setLoading(false)
     }
   }
+
+  // SAC-078: fires whenever `story` is set to a genuinely new object — every
+  // successful loadStory() call (initial load and every Regenerate) produces
+  // a fresh object, so this effect naturally re-runs each time, no separate
+  // "story changed" counter needed. Skips entirely if shouldPulseRef (set
+  // just above, at the top of loadStory) says this particular load isn't
+  // pulse-eligible. Turns the class off then back on via requestAnimationFrame
+  // (rather than straight to `true`) so a *second* pulse — e.g. a Regenerate
+  // shortly after the first pulse already finished — actually restarts the
+  // CSS animation: toggling a class off and back on within the same render
+  // doesn't force the browser to notice and replay it, a real paint tick has
+  // to land in between.
+  useEffect(() => {
+    if (!story || !shouldPulseRef.current) return
+    if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
+    setPulseAnimationActive(false)
+    const raf = requestAnimationFrame(() => {
+      setPulseAnimationActive(true)
+      pulseTimeoutRef.current = setTimeout(() => setPulseAnimationActive(false), 1800)
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+      if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
+    }
+  }, [story])
 
   // Shared onend behavior for the main sequential playback: pause briefly,
   // then move on to the next sentence.
@@ -439,9 +482,6 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     setVocabMatchedCount(0)
     setShowSpanish(false)
     setShowEnglish(false)
-    // No pulse after a regenerate — by this point the user has already
-    // found and used the controls at least once (they clicked Regenerate).
-    setIsFirstLoad(false)
     markAsPlayed(scenario)
 
     loadStory(() => false, true)
@@ -455,7 +495,11 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
 
   const handlePlayPause = () => {
     if (playStatus === 'idle') {
-      setIsFirstLoad(false)
+      // SAC-078: stop the pulse immediately on a real click rather than
+      // leaving it visibly finishing out its remaining ~1.8s on a button
+      // the user has already found and pressed.
+      if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
+      setPulseAnimationActive(false)
       markAsPlayed(scenario)
       manualNavRef.current = false
       speakSentenceAt(indexRef.current)
@@ -876,7 +920,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                   disabled={playStatus === 'finished'}
                   title={isMainPlaying ? 'Pause' : 'Play'}
                   className={`w-20 h-20 flex items-center justify-center text-4xl leading-none rounded-full bg-primary text-white shadow-lg hover:bg-primary-hover transition disabled:opacity-40 disabled:cursor-not-allowed ${
-                    isFirstLoad ? 'play-button-pulse' : ''
+                    pulseAnimationActive ? 'play-button-pulse' : ''
                   }`}
                 >
                   {isMainPlaying ? '⏸' : '▶'}
