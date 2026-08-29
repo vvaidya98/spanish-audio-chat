@@ -99,6 +99,11 @@ function featureForEndpoint(endpoint) {
   // matching this project's existing precedent of giving custom stories
   // their own bucket for the same "genuinely distinct cost" reason.
   if (endpoint === '/api/generate-sentence-explanations') return 'Explanations';
+  // SAC-087: own bucket, same reasoning as Explanations above — fires on
+  // every story load/regenerate (now twice per story, per the hybrid
+  // loading split) independent of whether the Vocabulary Preview checkbox
+  // is ever checked.
+  if (endpoint === '/api/generate-vocabulary-preview') return 'Vocabulary Preview';
   return 'Conversation';
 }
 
@@ -550,7 +555,7 @@ Respond with ONLY a JSON array (no markdown fences, no extra text), one object p
  * see ListeningStoryView.jsx's effect on `story`.
  */
 app.post('/api/generate-sentence-explanations', async (req, res) => {
-  const { sentences, difficulty = 'Beginner' } = req.body;
+  const { sentences, difficulty = 'Beginner', startIndex = 0 } = req.body;
 
   if (!Array.isArray(sentences) || sentences.length === 0) {
     return res.status(400).json({ error: 'sentences array is required' });
@@ -559,13 +564,107 @@ app.post('/api/generate-sentence-explanations', async (req, res) => {
     return res.status(400).json({ error: 'Invalid difficulty level' });
   }
 
-  console.log(`[explanations] Generating for ${sentences.length} sentences (${difficulty})`);
+  console.log(`[explanations] Generating for ${sentences.length} sentences (${difficulty}, startIndex=${startIndex})`);
   try {
     const explanations = await generateSentenceExplanations(sentences, difficulty);
-    res.json({ explanations });
+    // SAC-087: startIndex lets the frontend request a SUBSET of a story's
+    // sentences (e.g. just sentence 0 for the hybrid preview-loading
+    // strategy's fast first phase, then the rest in a second background
+    // call) while still getting back globally-correct indices — the
+    // underlying generation call always sees a 0-indexed sub-array and has
+    // no notion of where that subset sits in the full story.
+    const shifted = explanations.map((exp) => ({ ...exp, sentenceIndex: exp.sentenceIndex + startIndex }));
+    res.json({ explanations: shifted });
   } catch (error) {
     console.error('Error in /api/generate-sentence-explanations:', error);
     res.status(500).json({ error: error.message || 'Failed to generate explanations' });
+  }
+});
+
+// SAC-087: mirrors generateSentenceExplanations above — same 0-indexed-in,
+// 0-indexed-out contract, same reasoning for why (Claude echoing back
+// whatever indexing it's shown). Deliberately asks for MODERATE/HARD words
+// only, not a plain word list — the whole point of a preview is calling out
+// the words a learner is actually likely to stumble on, not repeating
+// vocabulary they already know. 0-5 words (not a forced 3-5) since a short
+// or simple sentence may genuinely have nothing that qualifies.
+async function generateVocabularyPreview(sentences, difficulty) {
+  const difficultyContext = {
+    Beginner: 'a beginner Spanish learner',
+    Intermediate: 'an intermediate Spanish learner',
+    Advanced: 'an advanced Spanish learner',
+  };
+
+  const sentencesText = sentences.map((s, idx) => `${idx}. ${s}`).join('\n');
+
+  const message = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 3000,
+    messages: [
+      {
+        role: 'user',
+        content: `For each Spanish sentence below, pick 0-5 words that would be genuinely MODERATE or HARD for ${difficultyContext[difficulty]} to recognize while listening — skip easy/common/function words entirely (no "el", "la", "es", "y", "un", etc.). It's fine for a sentence to have zero qualifying words if it's simple.
+
+Sentences (0-indexed):
+${sentencesText}
+
+Respond with ONLY a JSON array (no markdown fences, no extra text), one object per sentence, in exactly this shape:
+
+[
+  {
+    "sentenceIndex": 0,
+    "words": [
+      { "word": "paisaje", "english": "landscape", "difficulty": "moderate" }
+    ]
+  }
+]
+
+"sentenceIndex" must be the 0-indexed position matching the numbered list above. Include every sentence (with an empty "words" array if nothing qualifies). "word" must appear exactly as it does in that sentence, lowercased and stripped of punctuation. "difficulty" is either "moderate" or "hard".`,
+      },
+    ],
+  });
+
+  if (message.stop_reason === 'max_tokens') {
+    console.warn('/api/generate-vocabulary-preview: response hit max_tokens, JSON may be truncated');
+  }
+
+  const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+  const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+  const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
+  if (!Array.isArray(parsed)) {
+    throw new Error('Vocabulary preview response was not a JSON array');
+  }
+
+  logApiCall('/api/generate-vocabulary-preview', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
+  return parsed;
+}
+
+/**
+ * POST /api/generate-vocabulary-preview
+ * SAC-087: sentences + difficulty in, 0-5 moderate/hard words per sentence
+ * out, for the Vocabulary Preview checkbox — same startIndex-shifting
+ * contract as /api/generate-sentence-explanations, used by the same
+ * hybrid-loading strategy (sentence 0 fetched immediately on story load,
+ * the rest fetched once the user presses Play).
+ */
+app.post('/api/generate-vocabulary-preview', async (req, res) => {
+  const { sentences, difficulty = 'Beginner', startIndex = 0 } = req.body;
+
+  if (!Array.isArray(sentences) || sentences.length === 0) {
+    return res.status(400).json({ error: 'sentences array is required' });
+  }
+  if (!DIFFICULTY_LEVELS.includes(difficulty)) {
+    return res.status(400).json({ error: 'Invalid difficulty level' });
+  }
+
+  console.log(`[vocabulary-preview] Generating for ${sentences.length} sentences (${difficulty}, startIndex=${startIndex})`);
+  try {
+    const preview = await generateVocabularyPreview(sentences, difficulty);
+    const shifted = preview.map((p) => ({ ...p, sentenceIndex: p.sentenceIndex + startIndex }));
+    res.json({ vocabularyPreview: shifted });
+  } catch (error) {
+    console.error('Error in /api/generate-vocabulary-preview:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate vocabulary preview' });
   }
 });
 
@@ -890,7 +989,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.2h', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.2i', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {

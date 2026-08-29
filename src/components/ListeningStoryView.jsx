@@ -159,6 +159,15 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
       return false
     }
   })
+  // SAC-087: defaults off, same as the other three — persisted the same way.
+  const [showVocabularyPreview, setShowVocabularyPreview] = useState(() => {
+    try {
+      const saved = localStorage.getItem('showVocabularyPreview')
+      return saved !== null ? saved === 'true' : false
+    } catch {
+      return false
+    }
+  })
   // SAC-048/078: pulses the Play button a fixed 3 times when a story becomes
   // ready, since removing "Tap to Begin" (v1.0t) means there's no longer an
   // unmissable prompt telling a first-time user where to start.
@@ -207,6 +216,27 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // backend error (e.g. the Anthropic account hitting its own usage
   // quota) left the Grammar loading box saying "Loading…" forever.
   const [explanationsFailed, setExplanationsFailed] = useState(false)
+  // SAC-087: same keyed-by-index/failed-flag shape as sentenceExplanations/
+  // explanationsFailed just above, for the Vocabulary Preview checkbox.
+  const [vocabularyPreview, setVocabularyPreview] = useState({})
+  const [vocabularyPreviewFailed, setVocabularyPreviewFailed] = useState(false)
+  // Guards the hybrid loading strategy's second phase (see the effects
+  // below) so the bulk sentences-1..N fetch fires exactly once per story,
+  // the first time playback starts — not again on every subsequent
+  // pause/resume cycle back into 'playing'.
+  const bulkContentFetchedRef = useRef(false)
+  // Bumped only when a new `story` lands (Phase 1 below) — Phase 2's
+  // background fetch checks this, NOT a playStatus-effect-cleanup-driven
+  // `stale` flag, when applying its result. Using the effect's own cleanup
+  // for staleness would be wrong here: that effect's dependency array
+  // includes `playStatus` (needed to detect when playback first starts),
+  // so every subsequent playStatus change — pausing seconds after
+  // pressing Play, for instance — would re-run the effect, fire its
+  // cleanup, and silently mark the still-in-flight bulk fetch as stale,
+  // discarding its result the moment it eventually resolved. A real bug
+  // caught via a Puppeteer test that paused immediately after Play: the
+  // bulk request fired correctly but its data never made it into state.
+  const storyGenerationRef = useRef(0)
   // Transcript shows one sentence's explanation open at a time across the
   // whole list — same single-nullable-index pattern openTranslationIdx
   // already uses for the 🌐 toggle just below, where opening one implicitly
@@ -425,56 +455,83 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     }
   }, [story])
 
-  // SAC-079: fires on the same trigger as the pulse effect above — every new
-  // `story` object, i.e. initial load AND every regenerate — since a
-  // regenerated story's sentences are entirely different text needing
-  // entirely new explanations. Runs in the background: Play is already
-  // usable the moment `story` itself lands, this fetch never gates it.
-  // `stale` guards against a slower-to-resolve explanations request (e.g.
-  // for a long Advanced story) landing after the user has already
-  // regenerated again, which would otherwise overwrite the newer story's
-  // (still-empty) explanations with the older story's — the same isStale()
-  // pattern loadStory()'s own background /api/story-questions fetch uses.
+  // SAC-087: fetches one sentence-slice worth of Grammar explanations,
+  // returning a { [sentenceIndex]: explanation } map already shifted by
+  // startIndex — throws on any failure so both call sites (Phase 1/Phase 2
+  // below) can share one try/catch-driven failed-state handling.
+  const fetchExplanationsSlice = async (spanishSentences, startIndex) => {
+    const response = await apiFetch('/api/generate-sentence-explanations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sentences: spanishSentences, difficulty: difficultyRef.current, startIndex }),
+    })
+    if (!response.ok) throw new Error(`explanations request failed: ${response.status}`)
+    const data = await response.json()
+    const byIndex = {}
+    ;(data.explanations || []).forEach((exp) => {
+      if (typeof exp.sentenceIndex === 'number') byIndex[exp.sentenceIndex] = exp
+    })
+    return byIndex
+  }
+
+  // SAC-087: same shape as fetchExplanationsSlice, for Vocabulary Preview.
+  const fetchVocabularyPreviewSlice = async (spanishSentences, startIndex) => {
+    const response = await apiFetch('/api/generate-vocabulary-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sentences: spanishSentences, difficulty: difficultyRef.current, startIndex }),
+    })
+    if (!response.ok) throw new Error(`vocabulary-preview request failed: ${response.status}`)
+    const data = await response.json()
+    const byIndex = {}
+    ;(data.vocabularyPreview || []).forEach((entry) => {
+      if (typeof entry.sentenceIndex === 'number') byIndex[entry.sentenceIndex] = entry
+    })
+    return byIndex
+  }
+
+  // SAC-087 Phase 1 (replaces the old SAC-079 single-batch fetch): fires on
+  // the same trigger as the pulse effect above — every new `story` object,
+  // initial load AND every regenerate. Fetches ONLY sentence 0's Grammar
+  // explanation + Vocabulary Preview, not the whole story — a fast,
+  // single-sentence call so both are genuinely ready before the user even
+  // presses Play, which is the entire premise of "preview vocabulary before
+  // listening." The old behavior (one batch call for all 7-10 sentences,
+  // ~12-15s) left sentence 0 waiting behind sentences it didn't need yet.
+  // `stale` guards the same regenerate-mid-flight race the old effect did.
   useEffect(() => {
     if (!story || !story.sentences || story.sentences.length === 0) return
     let stale = false
     setSentenceExplanations({})
     setExplanationsFailed(false)
+    setVocabularyPreview({})
+    setVocabularyPreviewFailed(false)
+    bulkContentFetchedRef.current = false
+    storyGenerationRef.current += 1
+
+    const firstSentence = [story.sentences[0].spanish]
 
     ;(async () => {
-      try {
-        const spanish = story.sentences.map((s) => s.spanish)
-        const response = await apiFetch('/api/generate-sentence-explanations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sentences: spanish, difficulty: difficultyRef.current }),
-        })
-        if (stale) return
-        if (!response.ok) {
-          // SAC-084 fix: this used to fail silently — before SAC-085 added
-          // the always-visible "Loading explanation…" box, that was fine
-          // (a failure just left the small ⓘ icon permanently disabled, a
-          // low-visibility no-op). Now a failure here — e.g. a real backend
-          // error, or the Anthropic account hitting its own usage quota —
-          // left that box claiming "Loading…" forever with no way to tell
-          // "still working on it" from "never going to finish," which reads
-          // as broken. `explanationsFailed` lets ExplanationLoading show a
-          // real failed state instead.
-          console.error('[explanations] Request failed:', response.status)
-          setExplanationsFailed(true)
-          return
-        }
-        const data = await response.json()
-        if (stale) return
-        const byIndex = {}
-        ;(data.explanations || []).forEach((exp) => {
-          if (typeof exp.sentenceIndex === 'number') byIndex[exp.sentenceIndex] = exp
-        })
-        setSentenceExplanations(byIndex)
-      } catch (err) {
-        if (stale) return
-        console.error('Error loading sentence explanations:', err)
+      const [explResult, vocabResult] = await Promise.allSettled([
+        fetchExplanationsSlice(firstSentence, 0),
+        fetchVocabularyPreviewSlice(firstSentence, 0),
+      ])
+      if (stale) return
+      if (explResult.status === 'fulfilled') {
+        setSentenceExplanations((prev) => ({ ...prev, ...explResult.value }))
+      } else {
+        // SAC-084 fix: distinguishes "still waiting" from "failed and isn't
+        // coming" — without this, a real backend error (e.g. the Anthropic
+        // account hitting its own usage quota) left the Grammar loading box
+        // saying "Loading…" forever.
+        console.error('[explanations] Sentence 0 request failed:', explResult.reason)
         setExplanationsFailed(true)
+      }
+      if (vocabResult.status === 'fulfilled') {
+        setVocabularyPreview((prev) => ({ ...prev, ...vocabResult.value }))
+      } else {
+        console.error('[vocabulary-preview] Sentence 0 request failed:', vocabResult.reason)
+        setVocabularyPreviewFailed(true)
       }
     })()
 
@@ -482,6 +539,50 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
       stale = true
     }
   }, [story])
+
+  // SAC-087 Phase 2: once the user actually presses Play (first transition
+  // into 'playing' for this story), fetch the REMAINING sentences' Grammar
+  // explanations + Vocabulary Preview in the background — deliberately not
+  // bundled into Phase 1 above, so sentence 0's fast single-sentence calls
+  // aren't sharing a request/response cycle with a much larger batch.
+  // bulkContentFetchedRef (reset by Phase 1 on every new story) ensures
+  // this fires exactly once per story, not again on a later pause/resume
+  // cycle back into 'playing'. Deliberately does NOT use this effect's own
+  // cleanup for staleness (`playStatus` is a dependency here, so pausing
+  // even briefly would re-run the effect and fire that cleanup) — instead
+  // captures storyGenerationRef's current value up front and compares
+  // against it after the fetch resolves, so only a genuine new story
+  // invalidates this result, not a mid-flight pause/resume. See that ref's
+  // own comment for the real bug this fixes.
+  useEffect(() => {
+    if (playStatus !== 'playing') return
+    if (bulkContentFetchedRef.current) return
+    if (!story || !story.sentences || story.sentences.length <= 1) return
+    bulkContentFetchedRef.current = true
+    const myGeneration = storyGenerationRef.current
+
+    const restSentences = story.sentences.slice(1).map((s) => s.spanish)
+
+    ;(async () => {
+      const [explResult, vocabResult] = await Promise.allSettled([
+        fetchExplanationsSlice(restSentences, 1),
+        fetchVocabularyPreviewSlice(restSentences, 1),
+      ])
+      if (storyGenerationRef.current !== myGeneration) return
+      if (explResult.status === 'fulfilled') {
+        setSentenceExplanations((prev) => ({ ...prev, ...explResult.value }))
+      } else {
+        console.error('[explanations] Bulk request failed:', explResult.reason)
+        setExplanationsFailed(true)
+      }
+      if (vocabResult.status === 'fulfilled') {
+        setVocabularyPreview((prev) => ({ ...prev, ...vocabResult.value }))
+      } else {
+        console.error('[vocabulary-preview] Bulk request failed:', vocabResult.reason)
+        setVocabularyPreviewFailed(true)
+      }
+    })()
+  }, [playStatus, story])
 
   // SAC-080: acquires a screen wake lock for as long as the story is
   // actively playing or in the inter-sentence gap (`isMainPlaying`, computed
@@ -960,6 +1061,26 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                 (Quick Translate moved to its own line below to make room —
                 four items no longer had to compete for the same row). */}
             <div className="flex items-center flex-wrap gap-x-3 gap-y-2">
+              {/* SAC-087: listed first — pedagogically meant to be seen
+                  before the Spanish text itself ("preview vocabulary, build
+                  confidence, THEN listen"), not just another equal item in
+                  the Spanish/English/Grammar trio. */}
+              <label className="flex items-center gap-1.5 text-small text-ink-muted cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showVocabularyPreview}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setShowVocabularyPreview(checked)
+                    try {
+                      localStorage.setItem('showVocabularyPreview', checked ? 'true' : 'false')
+                    } catch {
+                      // Storage unavailable — the checkbox still works for this session.
+                    }
+                  }}
+                />
+                📖 Vocabulary Preview
+              </label>
               <label className="flex items-center gap-1.5 text-small text-ink-muted cursor-pointer">
                 <input
                   type="checkbox"
@@ -1024,6 +1145,37 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                 the Transcript's own ⓘ icons are unaffected and still work
                 the click-to-reveal way, since showing every sentence's
                 explanation there at once would be a wall of green boxes. */}
+            {/* SAC-087: own block, own color (bg-secondary-light — coral,
+                distinct from Spanish/English/Grammar's blue/yellow/green),
+                rendered before the Spanish block per this feature's own
+                "preview before listening" premise. Loading/failed states
+                mirror the Grammar block's ExplanationLoading pattern but
+                inlined here rather than extracted into a shared component,
+                since (unlike Grammar's panel) there's only this one call
+                site so far — no Transcript equivalent was asked for. */}
+            {showVocabularyPreview && currentSentence && (
+              <div className="mt-2 bg-secondary-light border border-border rounded-control p-3">
+                <p className="text-small font-semibold text-ink mb-1">📖 Vocabulary Preview</p>
+                {vocabularyPreview[currentIndex] ? (
+                  vocabularyPreview[currentIndex].words.length > 0 ? (
+                    <ul className="text-small text-ink-muted space-y-0.5">
+                      {vocabularyPreview[currentIndex].words.map((w, i) => (
+                        <li key={i}>
+                          <span className="font-semibold text-ink">{w.word}</span> — {w.english}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-small text-ink-muted">No especially tricky words in this sentence.</p>
+                  )
+                ) : (
+                  <p className="text-small text-ink-muted">
+                    {vocabularyPreviewFailed ? 'Vocabulary preview unavailable right now.' : 'Loading vocabulary preview…'}
+                  </p>
+                )}
+              </div>
+            )}
+
             {showSpanish && currentSentence && (
               <div className="mt-2 bg-info-light border border-border rounded-control p-3">
                 <div className="flex items-start gap-2">
