@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (Prompt #041, SAC-084 shipped as v1.2f)
+## Last updated: 2026-08-29 (Prompt #042, SAC-084 Fix shipped as v1.2g)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -529,6 +529,14 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Fourth consecutive SAC-ID collision** — this round's "SAC-084" was already assigned to a parked idea (CDN script cleanup); renumbered to SAC-087 (see item 5 above, now flagged for extra care going forward).
 - **Verified without live TTS** (this session's headless Chrome still returns 0 voices, a pre-existing unrelated issue): pure logic (connector splitting, color/shape mapping, the "y"-at-Ultra override) tested directly outside the browser; the row's always-visible-when-appropriate behavior confirmed live before any speech occurs.
 - Version bumped to v1.2f.
+
+### Shipped in v1.2g — Prompt #042, SAC-084 Fix (Clarity Indicators, Timer Display, Grammar Loading)
+- **Issue 1 (indicators/y-pauses "not rendering"): reported cause checked and found false.** No `dangerouslySetInnerHTML` exists anywhere in `ListeningStoryView.jsx` (confirmed via `Grep`). Real explanation: this session's headless Chrome still returns 0 voices, so `onend` never fires on real speech and this logic had never actually been exercised live before. Built a new mocked-TTS Puppeteer technique (`page.evaluateOnNewDocument()` overriding `speechSynthesis.speak`/`.cancel` to synthetically fire `onend`) to test the real code path for the first time — confirmed working correctly (1 red dot + a live "⏱️ 238ms" for a sentence with "y").
+- **Issue 2 (timer not showing with Clarity Off): fixed.** The "⏱️ Xms" readout was gated on the same condition as the dot/dash marks; decoupled so it always shows once Spanish text is on, regardless of Clarity level.
+- **Issue 3 (Grammar checkbox "broken"): fixed, real but different cause than reported.** The explanations-fetch `useEffect` failed completely silently, leaving "Loading explanation…" showing forever on any real failure. New `explanationsFailed` state + `failed` prop on `ExplanationLoading` now shows "Explanation unavailable right now." on a genuine failure.
+- **🚨 Major discovery, not a code bug — flag for any future session:** the Anthropic API account backing this app has hit its own usage quota. Confirmed via direct `curl` to both local dev and live production `/api/translate`, both HTTP 500: `"You have reached your specified API usage limits. You will regain access on 2026-09-01 at 00:00 UTC."` Every Claude-API-dependent feature (uncached story generation, translations, custom topics, sentence explanations) will 500 for every user until then. Not fixable in code — a billing/account matter. If a future session sees confusing 500s before that time, check this first.
+- Verified together via `sac084fix_full_test.js`: timer shows with Clarity Off; Grammar box shows the new failed-state message after a real (quota-caused) failure; indicators/timer accumulate correctly with mocked speech and Clarity=Medium.
+- Version bumped to v1.2g.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

@@ -67,11 +67,15 @@ export function ExplanationPanel({ explanation }) {
 // ever showing this, since a whole list of "Loading…" boxes for sentences
 // nobody has asked about yet would be far noisier than one small disabled
 // icon per row.
-export function ExplanationLoading() {
+// SAC-084 fix: `failed` distinguishes "still waiting" from "that request
+// failed and isn't coming" — without this, a genuine backend error (a real
+// 500, or the Anthropic account hitting its own usage quota) left this box
+// saying "Loading…" forever with no way to tell the two apart.
+export function ExplanationLoading({ failed = false }) {
   return (
     <div className="mt-1 bg-success-light border border-border rounded-control px-3 py-2 text-small text-ink-muted">
       <span className="mr-1">💡</span>
-      Loading explanation…
+      {failed ? 'Explanation unavailable right now.' : 'Loading explanation…'}
     </div>
   )
 }

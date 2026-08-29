@@ -220,6 +220,11 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
   // effect below), so a slower Advanced story's explanations never show up
   // stale against a story that's since been regenerated.
   const [sentenceExplanations, setSentenceExplanations] = useState({})
+  // SAC-084 fix: distinguishes "still waiting on the background fetch"
+  // from "that fetch failed and isn't coming" — without this, a real
+  // backend error (e.g. the Anthropic account hitting its own usage
+  // quota) left the Grammar loading box saying "Loading…" forever.
+  const [explanationsFailed, setExplanationsFailed] = useState(false)
   // Transcript shows one sentence's explanation open at a time across the
   // whole list — same single-nullable-index pattern openTranslationIdx
   // already uses for the 🌐 toggle just below, where opening one implicitly
@@ -452,6 +457,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
     if (!story || !story.sentences || story.sentences.length === 0) return
     let stale = false
     setSentenceExplanations({})
+    setExplanationsFailed(false)
 
     ;(async () => {
       try {
@@ -461,7 +467,21 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sentences: spanish, difficulty: difficultyRef.current }),
         })
-        if (!response.ok || stale) return
+        if (stale) return
+        if (!response.ok) {
+          // SAC-084 fix: this used to fail silently — before SAC-085 added
+          // the always-visible "Loading explanation…" box, that was fine
+          // (a failure just left the small ⓘ icon permanently disabled, a
+          // low-visibility no-op). Now a failure here — e.g. a real backend
+          // error, or the Anthropic account hitting its own usage quota —
+          // left that box claiming "Loading…" forever with no way to tell
+          // "still working on it" from "never going to finish," which reads
+          // as broken. `explanationsFailed` lets ExplanationLoading show a
+          // real failed state instead.
+          console.error('[explanations] Request failed:', response.status)
+          setExplanationsFailed(true)
+          return
+        }
         const data = await response.json()
         if (stale) return
         const byIndex = {}
@@ -471,9 +491,8 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
         setSentenceExplanations(byIndex)
       } catch (err) {
         if (stale) return
-        // Fail silently — explanations are a nice-to-have; the ⓘ icons just
-        // stay permanently disabled for this story, nothing else breaks.
         console.error('Error loading sentence explanations:', err)
+        setExplanationsFailed(true)
       }
     })()
 
@@ -1045,35 +1064,36 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                     🔊
                   </button>
                 </div>
-                {/* SAC-084: always shown here when Spanish text is on and
-                    Clarity isn't off — even for a sentence with zero
-                    connector words, which just means an empty dot/dash row
-                    (still correct: nothing to verify, nothing shown) and a
-                    real elapsed-time reading once it's done speaking. */}
-                {clarityLevel !== 'off' && (
-                  <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-                    {clarityIndicators.map((mark, i) => {
-                      const { shape, colorClass } = clarityMarkStyle(mark)
-                      return (
-                        <span
-                          key={i}
-                          title={`"${mark.connector}" — ${mark.level} (${CLARITY_PAUSE_MS[mark.level]}ms)`}
-                          className="inline-flex items-center gap-0.5"
-                        >
-                          {shape === 'dot' && <span className={`inline-block w-1.5 h-1.5 rounded-full ${colorClass}`} />}
-                          {shape === 'dash' && <span className={`inline-block w-2.5 h-0.5 rounded-full ${colorClass}`} />}
-                          {shape === 'double-dash' && (
-                            <>
-                              <span className={`inline-block w-2 h-0.5 rounded-full ${colorClass}`} />
-                              <span className={`inline-block w-2 h-0.5 rounded-full ${colorClass}`} />
-                            </>
-                          )}
-                        </span>
-                      )
-                    })}
-                    <span className="text-xs text-ink-faint ml-1">⏱️ {sentenceElapsedMs}ms</span>
-                  </div>
-                )}
+                {/* SAC-084 fix: the ⏱️ timer now shows whenever Spanish text
+                    is on, regardless of Clarity level — it's a real reading
+                    of how long the sentence took to speak either way, not
+                    something that only means anything with Clarity active.
+                    The dot/dash row stays conditional on Clarity being on,
+                    since with it Off there are no pauses to have marks for
+                    in the first place — always present-but-empty for a
+                    sentence with zero connector words, same as before. */}
+                <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                  {clarityLevel !== 'off' && clarityIndicators.map((mark, i) => {
+                    const { shape, colorClass } = clarityMarkStyle(mark)
+                    return (
+                      <span
+                        key={i}
+                        title={`"${mark.connector}" — ${mark.level} (${CLARITY_PAUSE_MS[mark.level]}ms)`}
+                        className="inline-flex items-center gap-0.5"
+                      >
+                        {shape === 'dot' && <span className={`inline-block w-1.5 h-1.5 rounded-full ${colorClass}`} />}
+                        {shape === 'dash' && <span className={`inline-block w-2.5 h-0.5 rounded-full ${colorClass}`} />}
+                        {shape === 'double-dash' && (
+                          <>
+                            <span className={`inline-block w-2 h-0.5 rounded-full ${colorClass}`} />
+                            <span className={`inline-block w-2 h-0.5 rounded-full ${colorClass}`} />
+                          </>
+                        )}
+                      </span>
+                    )
+                  })}
+                  <span className="text-xs text-ink-faint ml-1">⏱️ {sentenceElapsedMs}ms</span>
+                </div>
               </div>
             )}
 
@@ -1093,7 +1113,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
             {showGrammar && (
               sentenceExplanations[currentIndex]
                 ? <ExplanationPanel explanation={sentenceExplanations[currentIndex]} />
-                : <ExplanationLoading />
+                : <ExplanationLoading failed={explanationsFailed} />
             )}
           </div>
 
