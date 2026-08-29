@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (SAC-090 My Words shipped as v1.2k)
+## Last updated: 2026-08-29 (SAC-090 Fix shipped as v1.2l)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -577,6 +577,12 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Two review formats**: `WordFlashcards.jsx` (real 3D CSS flip, Prev/Next, stable Mixed-direction assignment) and `WordQuiz.jsx` (4-option multiple choice, graceful shrink at low word counts, exact audio-tone reuse from `VocabularyMatching.jsx` via a new shared `quizUtils.js`).
 - **New 🔖 footer nav entry** — confirmed all 6 items still fit cleanly at 390px width.
 - Version bumped to v1.2k.
+
+### Shipped in v1.2l — SAC-090 Fix (Stale Tooltip Bug)
+- **Real pre-existing bug found during v1.2k's own production verification**: `HoverableText.jsx`'s `clickedIdx` state didn't reset when the sentence's text changed, so navigating sentences could leave a stale tooltip "open" at the same token index — breaking the save button if the user tried to save a word from a second sentence.
+- Fixed with a `useEffect` resetting the tooltip state on every `text` change.
+- Re-verified: stale tooltip no longer appears; a clean two-sentence save now correctly produces 2 IndexedDB records.
+- Version bumped to v1.2l.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

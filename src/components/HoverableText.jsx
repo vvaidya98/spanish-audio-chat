@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { saveWord } from '../db'
 
 const SAVE_CONFIRM_MS = 1500
@@ -23,6 +23,20 @@ export default function HoverableText({ text, translation, vocabulary = {}, clas
   // checkmark swap, not an alert/toast, so it doesn't interrupt playback).
   const [justSavedIdx, setJustSavedIdx] = useState(null)
   const saveTimeoutRef = useRef(null)
+
+  // A real pre-existing bug surfaced while testing SAC-090's save flow, not
+  // caused by it: this component is reused (not remounted) across sentence
+  // changes in ListeningStoryView.jsx, so clickedIdx — a plain token index
+  // — persisted across a `text` change. If the new sentence happened to
+  // have a defined word at that same index, its tooltip appeared already
+  // "open" without ever being clicked, showing the wrong word's definition
+  // (and, concretely, letting a tap on the save button save/misfire against
+  // stale state). Resetting on every `text` change closes any tooltip the
+  // instant the underlying sentence actually changes.
+  useEffect(() => {
+    setHovered(false)
+    setClickedIdx(null)
+  }, [text])
 
   const handleSaveWord = (e, word, definition, idx) => {
     e.stopPropagation()
