@@ -631,7 +631,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
 
       {story && (
         <>
-          <p className="text-small text-ink-muted mb-3">{scenario} — Listen carefully</p>
+          <p className="font-bold text-ink text-heading-2 truncate mb-3">{scenario}</p>
 
           <div className="mb-4">
             <div className="flex items-center flex-wrap gap-4">
@@ -653,9 +653,9 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
               </label>
               <button
                 onClick={() => setShowQuickTranslate(true)}
-                className="min-h-[44px] px-3 rounded-control text-small font-semibold text-primary-text bg-primary-light hover:bg-primary-light/70 transition"
+                className="min-h-[44px] px-2 text-small text-ink-muted hover:text-ink transition"
               >
-                ⊕ Quick Translate
+                Quick Translate
               </button>
             </div>
             {(showSpanish || showEnglish) && currentSentence && (
@@ -815,15 +815,6 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
             </div>
           )}
 
-          <div className="flex justify-center mb-2">
-            <button
-              onClick={() => setShowRegenerateModal(true)}
-              title="Regenerate Story"
-              className="min-w-[32px] min-h-[32px] flex items-center justify-center text-sm text-ink-faint hover:text-ink-muted transition"
-            >
-              🔄
-            </button>
-          </div>
         </>
       )}
 
@@ -903,15 +894,17 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
               </div>
             </div>
 
-            {/* SAC-057: subtle, thumb-friendly zone — compact, low-contrast,
-                deliberately not competing visually with the controls above. */}
+            {/* SAC-057/077: thumb-friendly zone below the main controls —
+                Speed, Clarity, and Regenerate all on one row, sized up from
+                the original text-xs/text-ink-faint pairing (was hard to read)
+                to text-sm/text-ink-muted. */}
             <div className="flex items-center flex-wrap justify-center gap-x-4 gap-y-1 mt-2 pt-2 border-t border-border">
-              <label className="flex items-center gap-1.5 text-xs text-ink-faint">
+              <label className="flex items-center gap-1.5 text-base text-ink-muted">
                 Speed:
                 <select
                   value={rate}
                   onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
-                  className="text-xs text-ink-faint bg-transparent border border-border rounded-control px-1.5 py-0.5 focus:outline-none"
+                  className="text-base text-ink-muted bg-transparent border border-border rounded-control px-1.5 py-0.5 focus:outline-none"
                 >
                   {SPEED_OPTIONS.map((r) => (
                     <option key={r} value={r}>
@@ -920,12 +913,12 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                   ))}
                 </select>
               </label>
-              <label className="flex items-center gap-1.5 text-xs text-ink-faint">
-                Clarity Mode:
+              <label className="flex items-center gap-1.5 text-base text-ink-muted">
+                Clarity:
                 <select
                   value={clarityLevel}
                   onChange={(e) => handleClarityLevelChange(e.target.value)}
-                  className="text-xs text-ink-faint bg-transparent border border-border rounded-control px-1.5 py-0.5 focus:outline-none"
+                  className="text-base text-ink-muted bg-transparent border border-border rounded-control px-1.5 py-0.5 focus:outline-none"
                 >
                   {CLARITY_LEVELS.map((level) => (
                     <option key={level} value={level}>
@@ -934,6 +927,13 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack }, r
                   ))}
                 </select>
               </label>
+              <button
+                onClick={() => setShowRegenerateModal(true)}
+                title="Regenerate Story"
+                className="min-w-[32px] min-h-[32px] flex items-center justify-center text-base text-ink-muted hover:text-ink transition"
+              >
+                🔄
+              </button>
             </div>
           </div>
         </div>

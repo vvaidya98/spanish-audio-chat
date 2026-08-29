@@ -517,7 +517,13 @@ async function generateCustomStoryFromClaude(topic, difficulty) {
 
   const message = await client.messages.create({
     model: 'claude-opus-4-8',
-    max_tokens: 3000,
+    // SAC-077: was 3000 when "vocabulary" only asked for 8-12 selected
+    // words. Now that it asks for every distinct word (matching
+    // generateStoryFromClaude below, for full hover/click-to-define
+    // coverage — see that fix's note), a 250-300 word story's vocabulary
+    // list runs proportionally larger than a 100-150 word pre-built one's
+    // 50-90 entries, so this needs at least as much headroom.
+    max_tokens: 10000,
     messages: [
       {
         role: 'user',
@@ -538,7 +544,7 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
   ]
 }
 
-"sentences" must be the story broken into 8-10 individual sentences, each with its exact English translation — these drive sentence-by-sentence audio playback and hover-to-translate in the UI, so each pair must line up precisely. "vocabulary" should include 8-12 useful words from the story (a mix of nouns, verbs, and adjectives), lowercased and stripped of punctuation, each with its English meaning as used in that specific context.`,
+"sentences" must be the story broken into 8-10 individual sentences, each with its exact English translation — these drive sentence-by-sentence audio playback and hover-to-translate in the UI, so each pair must line up precisely. The "vocabulary" array must include an entry for EVERY distinct word that appears across all sentences — including small common words like "el", "la", "de", "es", "y", "un" — not just content words. Lowercase each "word" value and strip punctuation so it matches the word as it would be looked up (e.g. "gente." in the story becomes "gente" in vocabulary). Give the English meaning as used in that specific context.`,
       },
     ],
   });
@@ -722,7 +728,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.1b', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.1c', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {

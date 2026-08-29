@@ -45,7 +45,6 @@ export default function ScenarioSelector({
   onSelectScenario,
   apiError,
   onRetry,
-  onBackToModes,
   startLabel = 'Start Conversation',
   skipConfirm = false,
   showCustomTopic = false,
@@ -99,15 +98,9 @@ export default function ScenarioSelector({
         </div>
       )}
 
-      {onBackToModes && (
-        <button
-          onClick={onBackToModes}
-          className="min-h-[44px] text-primary hover:text-primary-hover text-small font-semibold mb-3"
-        >
-          ← Change Mode
-        </button>
-      )}
-
+      {/* SAC-077: the "← Change Mode" link that used to live here was removed
+          — redundant with FooterNav's Home button, which already does the
+          same thing from every screen. */}
       <p className="text-body text-ink-muted mb-6">Choose a conversation topic to get started:</p>
 
       <div className="grid gap-4 mb-6">

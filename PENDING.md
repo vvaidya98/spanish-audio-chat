@@ -439,6 +439,16 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Verified:** the identical repro script showed zero phantom speech after the fix. Regression pass (normal playback, switching directly between two playing scenarios, pause-then-navigate, rapid A→B→C navigation) all clean, zero console errors.
 - Version bumped to v1.1b — the prompt again suggested "v1.0a," the same collision already corrected once in the SAC-071 round.
 
+### Shipped in v1.1c — Prompt #031, SAC-077 (UI/UX polish: header, story header, Quick Translate, footer controls, vocabulary hover fix)
+- **Arrived truncated again** ("[Includes full implementation code, testing checklist, deployment checklist]") but, unlike the SAC-071 truncation, all 6 items were copy/layout/styling changes to components already well understood this session — built rather than asked, flagging interpretive calls instead of blocking.
+- **Header:** `App.jsx` title + version badge changed from side-by-side to stacked (title on its own line, version smaller/lighter below, still clickable → `AboutModal`).
+- **Redundant nav removed:** `ScenarioSelector.jsx`'s "← Change Mode" link deleted outright (not just hidden) — `App.jsx` no longer passes `onBackToModes`; the dead prop/JSX was removed entirely rather than left disabled, matching this project's usual "remove dead code" convention.
+- **Story header:** dropped "— Listen carefully," changed to `font-bold text-ink text-heading-2` (18px/700, same classes `ScenarioSelector.jsx`'s own card titles use) plus `truncate` — verified single-line-ellipsis on a real long custom topic at a 390px mobile viewport.
+- **Quick Translate de-emphasized:** lost its teal pill background and "⊕" icon, now plain muted text matching the adjacent Display Spanish/English checkboxes.
+- **Footer controls, one line:** Regenerate (previously its own row above the fixed footer) moved into the same row as Speed/Clarity; font bumped `text-xs`→`text-base` (12px→16px, +33%, closer to the requested "+30%" than an initially-tried `text-sm`/14px) and darkened `text-ink-faint`→`text-ink-muted`. Verified no horizontal overflow at 390px.
+- **Vocabulary hover — the one item the prompt explicitly asked to have clarified, not guessed:** traced `HoverableText.jsx`'s underline condition to its data source and found a concrete answer, not a genuine ambiguity — pre-built stories' prompt already requests every distinct word; `/api/generate-custom-story` (built last round, SAC-071) requests only "8-12 useful words," a real inconsistency introduced when custom topics were added. Fixed by matching pre-built's full-coverage instruction and raising `max_tokens` 3000→10000 for the larger resulting vocabulary list. Verified by generating a real custom story and diffing its actual API response — 59 distinct words, 59 vocabulary entries, 100% coverage.
+- No version was specified in the prompt this round; bumped to the next sequential value, v1.1c.
+
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
 2. Set a real `VITE_FORMSPREE_URL` so the email capture form goes live (code is shipped but no-ops without it)

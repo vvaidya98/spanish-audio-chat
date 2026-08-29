@@ -157,7 +157,6 @@ function App() {
           onSelectScenario={handleSelectScenario}
           apiError={apiError}
           onRetry={() => setApiError('')}
-          onBackToModes={handleBackToModes}
           startLabel={mode === 'listening' ? 'Begin Story' : 'Start Conversation'}
           skipConfirm={mode === 'listening'}
           showCustomTopic={mode === 'listening'}
@@ -194,13 +193,13 @@ function App() {
     <div className="min-h-screen p-4 pb-20" style={{ background: 'linear-gradient(to bottom right, var(--color-bg-start), var(--color-bg-end))' }}>
       <div className="max-w-2xl mx-auto">
         <div className="bg-surface rounded-card shadow-lg p-8">
-          <div className="flex justify-between items-center mb-6">
+          <div className="mb-6">
             <h1 className="text-heading-1 text-ink">Conversation Amigo</h1>
             <button
               onClick={() => setShowAboutModal(true)}
-              className="bg-primary-light text-primary-text px-3 py-1 rounded-full text-small font-semibold cursor-pointer hover:bg-primary-light/70 transition"
+              className="text-xs text-ink-faint hover:text-ink-muted transition"
             >
-              v1.1b
+              v1.1c
             </button>
           </div>
 
