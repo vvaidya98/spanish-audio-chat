@@ -48,11 +48,36 @@ export default function TranslationView({ onBack }) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
-  // SAC-095: null (not yet requested) | 'loading' | 'failed' | the
-  // {phrase, literalTranslation, englishSyntax, pattern} explanation object
-  // — same shape ExplanationPanel/ExplanationLoading already render
-  // elsewhere, reused here as-is.
-  const [grammarState, setGrammarState] = useState(null)
+  // SAC-100: persistent checkbox replacing SAC-095/098's on-demand tap-to-
+  // fetch button — same localStorage-lazy-init pattern as the Listening
+  // screen's Display checkboxes (SAC-081), confirmed by reading that real
+  // code first: `saved !== null ? saved === 'true' : false`, default off.
+  const [showGrammarCheckbox, setShowGrammarCheckbox] = useState(() => {
+    try {
+      const saved = localStorage.getItem('translateShowGrammar')
+      return saved !== null ? saved === 'true' : false
+    } catch {
+      return false
+    }
+  })
+  // SAC-100 Part 3: cache keyed by the line's own exact (trimmed) text,
+  // not its index — an index can end up pointing at different text after
+  // an edit, a fresh Translate, or a variations append, but the same text
+  // should never be re-fetched. 'loading' while in flight, 'failed' on
+  // error, the {phrase, literalTranslation, englishSyntax, pattern}
+  // explanation object on success — same shape ExplanationPanel/
+  // ExplanationLoading already render elsewhere. Keying by text also means
+  // this cache self-invalidates correctly without any manual clearing on
+  // a new Translate/variations action: genuinely new text simply isn't in
+  // the cache yet (a real miss, fetched fresh), while a line whose text
+  // didn't change (e.g. an unaffected line after a variations append)
+  // keeps its existing entry and correctly avoids a duplicate fetch.
+  const [grammarCache, setGrammarCache] = useState({})
+  // Tracks which line-texts already have a fetch dispatched (in flight or
+  // done) — checked instead of grammarCache itself so this effect's own
+  // dependency array doesn't need to include the cache object (which
+  // would otherwise re-run the effect on every fetch completion).
+  const grammarFetchedKeysRef = useRef(new Set())
   // SAC-096 Part 1: which word's tooltip is open, as a "<lineId>:<idx>"
   // key. Lifted up here (rather than left as each ClickableSpanishText
   // instance's own local state) specifically because Part 3 now renders
@@ -118,6 +143,12 @@ export default function TranslationView({ onBack }) {
     setSelectedLineIdx(0)
     setSpeakingLineIdx(null)
     speakTokenRef.current++
+    // SAC-100: not strictly required for correctness (the cache is keyed
+    // by text, so stale entries for now-gone lines are simply never
+    // looked up again) but tidy, and consistent with resetting every
+    // other per-session piece of state here.
+    setGrammarCache({})
+    grammarFetchedKeysRef.current.clear()
   }
 
   const handleSourceTextChange = (e) => {
@@ -285,6 +316,8 @@ export default function TranslationView({ onBack }) {
     setSelectedLineIdx(0)
     setSpeakingLineIdx(null)
     speakTokenRef.current++
+    setGrammarCache({})
+    grammarFetchedKeysRef.current.clear()
   }
 
   // SAC-094: manual modes know their flags immediately (the direction is
@@ -337,33 +370,45 @@ export default function TranslationView({ onBack }) {
   const showVariationsButton = nonEmptySourceLineCount === 1
   const canGenerateVariations = showVariationsButton && !isLoading && !variationsLoading
 
-  // SAC-095/098: resets whenever the specific line Grammar targets
-  // changes for any reason (edit to that line, a new translation result,
-  // moving the shared selector) — one effect covers every call site
-  // rather than resetting grammarState manually everywhere. SAC-098 Part
-  // 2: moving the selector must clear any shown explanation rather than
-  // auto-fetching a new one — this effect already does exactly that
-  // (grammarState -> null), the user taps Grammar again to fetch fresh.
+  // SAC-100 Part 2: replaces SAC-098's "moving the selector clears any
+  // shown grammar" rule for the checked case — while showGrammarCheckbox
+  // is on, moving Prev/Next (or any other change to which line is active)
+  // now automatically fetches (or reuses the cached result for) the new
+  // line's grammar instead of clearing it. While the checkbox is off,
+  // this effect is a no-op — nothing is shown or fetched regardless of
+  // selector position, per the round's explicit rule.
   useEffect(() => {
-    setGrammarState(null)
-  }, [activeSpanishLine])
+    if (!showGrammarCheckbox) return
+    const line = activeSpanishLine.trim()
+    if (!line) return
+    if (grammarFetchedKeysRef.current.has(line)) return
+    grammarFetchedKeysRef.current.add(line)
+    setGrammarCache((prev) => ({ ...prev, [line]: 'loading' }))
+    ;(async () => {
+      try {
+        const response = await apiFetch('/api/generate-sentence-explanations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sentences: [line], difficulty: 'Beginner' }),
+        })
+        if (!response.ok) throw new Error(`status ${response.status}`)
+        const data = await response.json()
+        const explanation = (data.explanations || []).find((exp) => exp.sentenceIndex === 0)
+        setGrammarCache((prev) => ({ ...prev, [line]: explanation || 'failed' }))
+      } catch (err) {
+        console.error('Could not generate grammar explanation:', err)
+        setGrammarCache((prev) => ({ ...prev, [line]: 'failed' }))
+      }
+    })()
+  }, [showGrammarCheckbox, activeSpanishLine])
 
-  const fetchGrammar = async () => {
-    if (!activeSpanishLine.trim()) return
-    setGrammarState('loading')
+  const handleToggleGrammarCheckbox = (e) => {
+    const checked = e.target.checked
+    setShowGrammarCheckbox(checked)
     try {
-      const response = await apiFetch('/api/generate-sentence-explanations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sentences: [activeSpanishLine], difficulty: 'Beginner' }),
-      })
-      if (!response.ok) throw new Error(`status ${response.status}`)
-      const data = await response.json()
-      const explanation = (data.explanations || []).find((exp) => exp.sentenceIndex === 0)
-      setGrammarState(explanation || 'failed')
-    } catch (err) {
-      console.error('Could not generate grammar explanation:', err)
-      setGrammarState('failed')
+      localStorage.setItem('translateShowGrammar', checked ? 'true' : 'false')
+    } catch {
+      // Storage unavailable — the checkbox still works for this session.
     }
   }
 
@@ -688,28 +733,32 @@ export default function TranslationView({ onBack }) {
         )}
       </div>
 
-      {/* SAC-095: only shown once there's actual Spanish text on screen —
-          fetches on tap only, never automatically alongside Translate/
-          Speak's own call. Reuses ExplanationPanel/ExplanationLoading
-          as-is (same generate-sentence-explanations endpoint SAC-081/085
-          already use for the story screen), not a new explanation style.
-          SAC-098 Part 2: now bound to the shared selector's line instead
-          of whichever line was last word-clicked, and labeled with that
-          line number so it's never ambiguous which sentence is being
-          explained. */}
+      {/* SAC-100: a persistent checkbox (matching the Listening screen's
+          SAC-081 Display checkboxes exactly — same classes, same
+          localStorage-lazy-init pattern) replaces SAC-095/098's tap-to-
+          fetch button. While checked, Grammar automatically shows
+          (fetching first if not yet cached) whichever line the selector
+          currently points to, updating live as Prev/Next moves — no extra
+          tap needed on navigation, per this round's explicit rule. Still
+          only rendered once there's actual Spanish text on screen. */}
       {spanishLines.some((l) => l.trim()) && (
         <div className="mb-2">
-          {grammarState === null && (
-            <button onClick={fetchGrammar} className="text-small text-ink-muted hover:text-ink transition">
-              💡 Grammar — line {clampedGrammarLineIdx + 1}
-            </button>
-          )}
-          {grammarState !== null && (
-            <p className="text-xs text-ink-faint mb-1">Grammar — line {clampedGrammarLineIdx + 1}</p>
-          )}
-          {grammarState === 'loading' && <ExplanationLoading />}
-          {grammarState === 'failed' && <ExplanationLoading failed />}
-          {grammarState && grammarState !== 'loading' && grammarState !== 'failed' && <ExplanationPanel explanation={grammarState} />}
+          <label className="flex items-center gap-1.5 text-small text-ink-muted cursor-pointer mb-1">
+            <input type="checkbox" checked={showGrammarCheckbox} onChange={handleToggleGrammarCheckbox} />
+            💡 Grammar
+          </label>
+          {showGrammarCheckbox &&
+            (() => {
+              const cached = grammarCache[activeSpanishLine.trim()]
+              return (
+                <>
+                  <p className="text-xs text-ink-faint mb-1">Grammar — line {clampedGrammarLineIdx + 1}</p>
+                  {(cached === undefined || cached === 'loading') && <ExplanationLoading />}
+                  {cached === 'failed' && <ExplanationLoading failed />}
+                  {cached && cached !== 'loading' && cached !== 'failed' && <ExplanationPanel explanation={cached} />}
+                </>
+              )
+            })()}
         </div>
       )}
 

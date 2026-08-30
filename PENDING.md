@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-30 (SAC-099 shipped as v1.2u)
+## Last updated: 2026-08-30 (SAC-100 shipped as v1.2v)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -648,6 +648,12 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Audio icon repositioning**: moved from a fixed position to travel with the selected line (confirmed straightforward given the existing per-line flex-row DOM structure).
 - **Sentence-level Save button removed** from the Translate result entirely — saving still works via the existing word-click tooltip on every word. `QuickTranslateModal.jsx`'s own separate Save button is untouched.
 - Version bumped to v1.2u.
+
+### Shipped in v1.2v — SAC-100 (Grammar as a Persistent, Per-Line-Cached Checkbox)
+- **Checkbox instead of button**: Grammar is now a persistent checkbox styled identically to the Listening screen's SAC-081 Display checkboxes, defaulting unchecked and persisted via `localStorage` (`translateShowGrammar`).
+- **Auto-shows on navigation**: while checked, moving Prev/Next automatically fetches (or reuses a cached result for) the newly-selected line's grammar — no extra tap needed.
+- **Per-line caching, keyed by text**: each line's fetched explanation is cached by its own exact text, not its index — this self-invalidates correctly on a new Translate/variations action (new text = cache miss) without any manual cache-clearing logic.
+- Version bumped to v1.2v.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
