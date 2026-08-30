@@ -27,6 +27,16 @@ export default function ModeSelector({ onSelectMode }) {
           <p className="text-ink-muted text-small">Translate between Spanish and English</p>
         </button>
 
+        {/* SAC-097: placed after Translation, before the disabled
+            Conversation card, matching the confirmed real current order. */}
+        <button
+          onClick={() => onSelectMode('sentence-builder')}
+          className="p-6 bg-surface border-2 border-border rounded-card shadow-sm hover:border-secondary hover:shadow-md transition text-left"
+        >
+          <p className="font-bold text-ink text-heading-2 mb-1">🧩 Build a Sentence</p>
+          <p className="text-ink-muted text-small">Learn Spanish sentence construction step by step</p>
+        </button>
+
         <button
           disabled
           className="p-6 bg-surface border-2 border-border rounded-card text-left opacity-50 cursor-not-allowed"

@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-30 (SAC-101 shipped as v1.2w)
+## Last updated: 2026-08-30 (SAC-097 Phase 1 shipped as v1.2x)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -660,6 +660,13 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Fix 2**: the word-click tooltip regression (not dismissing on outside click within Translate) was traced to `useClickOutside`'s boundary being the ENTIRE `TranslationView` rather than each box's own content — fixed by scoping it to two narrower per-box refs, matching the same pattern used elsewhere in the app.
 - **Fix 3**: Grammar's separate trailing English gloss sentence was replaced with inline parentheticals woven directly through the Spanish phrase (e.g. "Me muero (I'm dying) de (of) hambre (hunger)"). This is a shared endpoint/component with the Listening screen's own Grammar feature, so the format change applies to both.
 - Version bumped to v1.2w.
+
+### Shipped in v1.2x — SAC-097 Phase 1 (Sentence Builder — Curated Bank, Multiple Choice, Category-Order Highlight)
+- New "🧩 Build a Sentence" activity on the mode selector: a curated Spanish sentence broken into grammatical slots (pronoun/verb/noun/adjective/preposition), one English word highlighted at a time in fixed category order (not reading order — an intentional cue that Spanish word order differs), multiple-choice per slot (reusing VocabularyMatching's tap/audio-feedback mechanism), then the assembled Spanish sentence with word-click save, audio, and on-demand grammar.
+- 18 hand-curated sentences (6 each: Beginner/Intermediate/Advanced), static content bundled with the app — zero ongoing API cost for the content itself.
+- Two real content bugs caught by a purpose-built verification script (not manual review): a comma attached to a slotted word breaking positional matching, and a naive "to" substring search matching zero/one/two wrong places across three sentences (including inside "tonight"). Both fixed; the real highlight logic is word-boundary-aware from the start.
+- **Explicitly out of scope for Phase 1** (per the round's own instruction — do not build ahead of need): typed-answer mode, user-submitted custom sentences, spaced repetition tracking. All planned as future SACs, not yet numbered.
+- Version bumped to v1.2x.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

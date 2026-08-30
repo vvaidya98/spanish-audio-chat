@@ -4,6 +4,7 @@ import ScenarioSelector, { DEFAULT_SCENARIOS } from './components/ScenarioSelect
 import ConversationView from './components/ConversationView'
 import ListeningStoryView from './components/ListeningStoryView'
 import VocabHubView from './components/VocabHubView'
+import SentenceBuilderView from './components/SentenceBuilderView'
 import HistoryDashboard from './components/HistoryDashboard'
 import SessionReview from './components/SessionReview'
 import FooterNav from './components/FooterNav'
@@ -50,8 +51,10 @@ function App() {
     // separate modes 'translation'/'mywords') gets the same
     // previousMode/previousScenario capture — still a standalone utility
     // page you jump into from anywhere and want to return from, not a
-    // story/scenario mode.
-    if (selectedMode === 'vocab') {
+    // story/scenario mode. SAC-097: 'sentence-builder' is the same kind of
+    // standalone utility page (its own difficulty picker, no scenario
+    // concept at all), so it gets the identical treatment.
+    if (selectedMode === 'vocab' || selectedMode === 'sentence-builder') {
       setPreviousMode(mode)
       setPreviousScenario(scenario)
     }
@@ -161,6 +164,10 @@ function App() {
       return <VocabHubView onBack={handleModeBack} />
     }
 
+    if (mode === 'sentence-builder') {
+      return <SentenceBuilderView onBack={handleModeBack} />
+    }
+
     if (!scenario) {
       return (
         <ScenarioSelector
@@ -222,7 +229,7 @@ function App() {
               onClick={() => setShowAboutModal(true)}
               className="text-xs text-ink-faint hover:text-ink-muted transition"
             >
-              v1.2w
+              v1.2x
             </button>
           </div>
 

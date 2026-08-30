@@ -36,4 +36,7 @@ logs/
 .cache/
 
 # API usage tracking database (local dev-cost tracking, not shared data)
-data/
+# Anchored to the repo root — a bare "data/" would also match src/data/
+# (SAC-097's bundled sentenceBuilderContent.js), which is real shipped
+# content, not a local/ephemeral artifact.
+/data/
