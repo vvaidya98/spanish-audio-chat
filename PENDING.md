@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-30 (SAC-094 shipped as v1.2p)
+## Last updated: 2026-08-30 (SAC-095 shipped as v1.2q)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -614,6 +614,13 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Replay icon**: replays the displayed translation without re-calling the API.
 - New `speechUtils.js` export `applyEnglishVoice()` (no English-voice helper existed before this).
 - Version bumped to v1.2p.
+
+### Shipped in v1.2q — SAC-095 (Translate Compact Layout + Word-Click/Grammar)
+- **Compact layout**: direction radios and action buttons each collapsed onto one line (chip-style radios, plain bordered buttons), same state/logic unchanged.
+- **Word-click on Spanish text**: confirmed `HoverableText.jsx` requires precomputed vocabulary (no on-demand path) — built `ClickableSpanishText.jsx` instead, fetching definitions on demand via the existing `/api/translate` endpoint, rendering the same `WordSaveTooltip` used everywhere else. Works on input (manual ES→EN), output (manual EN→ES), or whichever side resolves as Spanish in Auto mode.
+- **On-demand grammar**: reuses the existing `/api/generate-sentence-explanations` endpoint and `ExplanationPanel`/`ExplanationLoading` components unmodified — same story-screen look, fetched only on tap.
+- **Clear button** now also resets `directionMode` back to Auto (a real gap caught via testing — the spec's "back to the tab's initial state" wasn't fully honored at first).
+- Version bumped to v1.2q.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

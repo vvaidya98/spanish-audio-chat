@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react'
 import WordSaveTooltip from './WordSaveTooltip'
 
-function tokenize(text) {
+// Exported so SAC-095's ClickableSpanishText.jsx (Translate's on-demand
+// word-click, which has no precomputed vocabulary map to key off) can split
+// text the exact same way this component does, rather than a second,
+// possibly-drifting copy of the same regex.
+export function tokenize(text) {
   return text.split(/([^A-Za-zÀ-ÿ]+)/).filter((chunk) => chunk !== '')
 }
 
