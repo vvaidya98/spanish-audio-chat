@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-30 (SAC-096 shipped as v1.2r)
+## Last updated: 2026-08-30 (SAC-096 shipped as v1.2r, hotfixed same-day as v1.2s)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -629,6 +629,11 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Variations button (Part 4)**: new `/api/generate-variations` endpoint — one Claude call returns 2-3 alternate phrasings of a single input line (auto-detecting its language) plus their translations. Enabled only when input has exactly one non-empty line. A live test caught a real alignment bug: if the user generates variations before ever pressing Translate, appending only the alternates' translations to an empty output box left input line 1 (the original) with no corresponding output line 1, shifting every subsequent line number out of sync — fixed by having the same endpoint also return the original line's own translation (`originalTranslation`), still one call, and using it to seed output line 1 when the output box was empty.
 - `ClickableSpanishText.jsx` redesigned to be fully controlled from `TranslationView.jsx` (an `activeToken`/`onActiveTokenChange` pair instead of its own local `clickedIdx`) — necessary once Part 3 required one instance per line: with per-instance local state, opening a word tooltip on one line wouldn't have closed an already-open one on a different line, which would have partially undermined the Part 1 fix at the multi-line level.
 - Version bumped to v1.2r.
+
+### Shipped in v1.2s — SAC-096 Fix (Variations Line-Alignment Edge Case)
+- Production verification of v1.2r caught a real bug: translating a multi-line source, then replacing it with a new unrelated single line without re-translating, then generating variations, appended new translations onto the stale old multi-line output instead of treating it as no-longer-corresponding — produced more output lines than input lines, misaligned from row one.
+- Fixed: only append onto the existing output when it's already exactly one line; otherwise rebuild output line 1 from the same API call's own `originalTranslation`.
+- Version bumped to v1.2s (same day as v1.2r).
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
