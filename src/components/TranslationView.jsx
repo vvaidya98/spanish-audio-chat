@@ -99,10 +99,33 @@ export default function TranslationView({ onBack }) {
   // never confused for the same thing.
   const [speakingLineIdx, setSpeakingLineIdx] = useState(null)
   const [variationsLoading, setVariationsLoading] = useState(false)
+  // SAC-101 Fix 1: whether the input textarea currently has focus — drives
+  // which of the two input views is shown. SAC-099 rendered its mirrored-
+  // highlight block ALONGSIDE the always-visible textarea (confirmed by
+  // reading the real code before this round), so English input showed two
+  // visibly-stacked copies of the same text. Only one is ever shown now:
+  // the editable textarea while focused, the read-only line-numbered
+  // (highlight-capable, and for Spanish input, word-clickable) view
+  // otherwise — but only once a result exists to justify showing it at all.
+  const [isInputFocused, setIsInputFocused] = useState(false)
 
-  const rootRef = useRef(null)
   const textareaRef = useRef(null)
   const gutterRef = useRef(null)
+  // SAC-101 Fix 2: two narrow boundaries (one per box) replace SAC-096's
+  // single view-wide rootRef — confirmed by reading the real code that the
+  // old boundary wrapped the ENTIRE TranslationView, so a click ANYWHERE
+  // else within Translate (the line selector, the Grammar checkbox, blank
+  // space in the other box, etc. — all real, common taps SAC-098/099 added
+  // a lot more of) still counted as "inside" and never dismissed an open
+  // tooltip; only a click truly outside the whole component ever did.
+  // Scoping each ref to just its own box's per-line content — the same
+  // per-container granularity HoverableText.jsx and Vocabulary Preview
+  // already use — means a click on the selector, the checkbox, or the
+  // other box now correctly counts as "outside" and dismisses, while a
+  // click on a different word within the SAME box still switches normally
+  // (that word's own onClick already handles it, unaffected by this).
+  const inputWordsRef = useRef(null)
+  const outputWordsRef = useRef(null)
   // SAC-098 Part 3: guards the chained per-line utterances the same way
   // this codebase's other speech engines guard theirs (e.g.
   // ListeningStoryView.jsx's utteranceTokenRef) — bumping it invalidates
@@ -110,12 +133,13 @@ export default function TranslationView({ onBack }) {
   // (a new Speak press, Clear, a direction change, or unmount).
   const speakTokenRef = useRef(0)
 
-  // SAC-096 Part 1: closes an open word tooltip on a tap/click anywhere
-  // outside this view — see useClickOutside.js for why nothing did this
-  // before. A click on a word inside this view isn't "outside" (contains()
-  // catches it), so the existing same-word/cross-word toggle logic in
-  // ClickableSpanishText is unaffected.
-  useClickOutside(rootRef, () => setActiveToken(null), activeToken !== null)
+  // SAC-101 Fix 2: each box only listens while ITS OWN tooltip is open
+  // (checked via the "input-"/"output-" prefix baked into every lineId),
+  // and only treats a click inside ITS OWN box as "not outside" — a click
+  // on a word within the same box still switches normally via that word's
+  // own onClick, unaffected by this.
+  useClickOutside(inputWordsRef, () => setActiveToken(null), activeToken != null && activeToken.startsWith('input-'))
+  useClickOutside(outputWordsRef, () => setActiveToken(null), activeToken != null && activeToken.startsWith('output-'))
 
   // SAC-098: a scheduled-but-not-yet-fired chained utterance surviving
   // unmount would be the same class of bug SAC-075 fixed for
@@ -133,6 +157,39 @@ export default function TranslationView({ onBack }) {
     }
   }
 
+  // SAC-101 Fix 1: the textarea stays mounted at all times (CSS-hidden via
+  // `hidden` while the read-only view is showing, not conditionally
+  // unmounted) so it can be focused without waiting on a remount — but a
+  // real bug was caught via live testing: calling .focus() synchronously
+  // in THIS handler, in the same tick as setIsInputFocused(true), fired
+  // before React had actually re-rendered and removed the `hidden` class,
+  // so .focus() silently no-op'd against an element that was still
+  // display:none at that exact instant. Fixed by deferring the actual
+  // .focus()/cursor-placement into a useEffect keyed on isInputFocused,
+  // which only runs after the DOM commit — by then the textarea is
+  // genuinely visible and focusable. pendingCursorToEndRef distinguishes
+  // this tap-to-edit transition (cursor should jump to the end) from the
+  // user directly clicking inside the textarea themselves (onFocus below
+  // also sets isInputFocused(true), but the browser's own natural click-
+  // to-position-cursor behavior should be left alone in that case).
+  const pendingCursorToEndRef = useRef(false)
+  const handleTapToEditInput = () => {
+    pendingCursorToEndRef.current = true
+    setIsInputFocused(true)
+    setActiveToken(null)
+  }
+  useEffect(() => {
+    if (!isInputFocused) return
+    const el = textareaRef.current
+    if (!el) return
+    el.focus()
+    if (pendingCursorToEndRef.current) {
+      const len = el.value.length
+      el.setSelectionRange(len, len)
+      pendingCursorToEndRef.current = false
+    }
+  }, [isInputFocused])
+
   const handleDirectionChange = (mode) => {
     setDirectionMode(mode)
     setSourceText('')
@@ -142,6 +199,7 @@ export default function TranslationView({ onBack }) {
     setActiveToken(null)
     setSelectedLineIdx(0)
     setSpeakingLineIdx(null)
+    setIsInputFocused(false)
     speakTokenRef.current++
     // SAC-100: not strictly required for correctness (the cache is keyed
     // by text, so stale entries for now-gone lines are simply never
@@ -226,7 +284,15 @@ export default function TranslationView({ onBack }) {
   // Speak's own internal re-translate no longer touches it at all.
   const handleTranslate = async () => {
     const result = await runTranslate()
-    if (result) setSelectedLineIdx(0)
+    if (result) {
+      setSelectedLineIdx(0)
+      // SAC-101 Fix 1: a real click on the Translate/Speak buttons already
+      // blurs the textarea naturally (focus moves to whichever element was
+      // clicked), but this makes "completing a Translate/Speak action
+      // switches back to the read-only view" a guarantee rather than an
+      // incidental side effect of how the button happened to be triggered.
+      setIsInputFocused(false)
+    }
   }
 
   // SAC-098 Part 3: speaks every non-empty line in `lines` one at a time,
@@ -275,7 +341,10 @@ export default function TranslationView({ onBack }) {
 
   const handleSpeak = async () => {
     const result = await runTranslate()
-    if (result) speakLinesSequentially(result.translated.split('\n'), result.direction)
+    if (result) {
+      speakLinesSequentially(result.translated.split('\n'), result.direction)
+      setIsInputFocused(false)
+    }
   }
 
   // SAC-098 Part 2: replays only the shared selector's current line (in
@@ -315,6 +384,7 @@ export default function TranslationView({ onBack }) {
     setActiveToken(null)
     setSelectedLineIdx(0)
     setSpeakingLineIdx(null)
+    setIsInputFocused(false)
     speakTokenRef.current++
     setGrammarCache({})
     grammarFetchedKeysRef.current.clear()
@@ -356,6 +426,13 @@ export default function TranslationView({ onBack }) {
   // visibly matter once there's more than one line to distinguish —
   // per the round's own explicit "unnecessary" call for a single line.
   const hasMultipleTranslatedLines = translatedLines.filter((l) => l.trim()).length >= 2
+  // SAC-101 Fix 1: the read-only, highlight-capable (and for Spanish
+  // input, word-clickable) view only takes over once there's an actual
+  // result to show a selection against AND the textarea isn't the one
+  // currently being edited — otherwise the plain editable textarea stays
+  // visible (including pre-translation, where there's nothing yet for the
+  // read-only view to usefully show).
+  const showReadOnlyInputView = !isInputFocused && Boolean(translatedText) && sourceText.trim()
 
   const handlePrevLine = () => setSelectedLineIdx((i) => Math.max(0, i - 1))
   const handleNextLine = () => setSelectedLineIdx((i) => Math.min(translatedLines.length - 1, i + 1))
@@ -495,7 +572,7 @@ export default function TranslationView({ onBack }) {
   }
 
   return (
-    <div ref={rootRef}>
+    <div>
       <button
         onClick={onBack}
         className="min-h-[44px] mb-4 px-3 -ml-1 rounded-control text-primary-text font-semibold hover:bg-primary-light transition flex items-center gap-1"
@@ -540,7 +617,15 @@ export default function TranslationView({ onBack }) {
           <textarea> has no per-line markup to attach numbers to directly,
           so this is a separate column kept visually in lockstep instead
           (matching leading-6 line-height and top padding on both). */}
-      <div className="flex border border-border rounded-control bg-[#f9f9f9] mb-2 focus-within:border-primary transition overflow-hidden">
+      {/* SAC-101 Fix 1: stays mounted at all times (CSS-hidden via the
+          `hidden` class, not conditionally unmounted) so a tap on the
+          read-only view below can call textareaRef.current.focus()
+          synchronously without waiting on a remount. */}
+      <div
+        className={`flex border border-border rounded-control bg-[#f9f9f9] mb-2 focus-within:border-primary transition overflow-hidden ${
+          showReadOnlyInputView ? 'hidden' : ''
+        }`}
+      >
         <div
           ref={gutterRef}
           className="w-7 shrink-0 pt-3 pb-3 text-right pr-1 text-xs text-ink-faint select-none overflow-hidden"
@@ -556,6 +641,8 @@ export default function TranslationView({ onBack }) {
           value={sourceText}
           onChange={handleSourceTextChange}
           onScroll={handleTextareaScroll}
+          onFocus={() => setIsInputFocused(true)}
+          onBlur={() => setIsInputFocused(false)}
           placeholder="Enter text to translate..."
           rows={5}
           className="flex-1 bg-transparent p-3 text-body text-ink leading-6 resize-none focus:outline-none transition"
@@ -577,27 +664,23 @@ export default function TranslationView({ onBack }) {
         </div>
       )}
 
-      {/* SAC-095: the textarea above stays the live editable input — a
-          native <textarea> can't host per-word clickable spans — so a
-          separate read-only rendering of the same text appears just below
-          it. SAC-096 Part 3: rendered per-line, numbered to match the
-          gutter above. SAC-098: word-click here has no side effect on
-          grammar targeting. SAC-099 Part 1: this block now also renders
-          for non-Spanish input (previously Spanish-only), specifically so
-          the selected-line highlight can be mirrored here too — English
-          lines render as plain text (no word-click, no "Tap a word" hint,
-          since there's nothing to click), Spanish lines keep the exact
-          existing ClickableSpanishText behavior unchanged. Only shown once
-          there's either Spanish text to click OR a result to mirror a
-          selection against — an English input with no translation yet has
-          no reason to show a redundant read-only copy of what's already
-          in the textarea above it. */}
-      {sourceText.trim() && (isInputSpanish || translatedText) && (
-        <div className="mb-2">
+      {/* SAC-101 Fix 1: a native <textarea> can't host per-word clickable
+          spans or a per-line background highlight, so this read-only view
+          is what makes both possible — but it's now shown INSTEAD OF the
+          textarea (via showReadOnlyInputView), never alongside it. SAC-099
+          originally rendered this unconditionally alongside the always-
+          visible textarea, which is confirmed to be exactly why English
+          input showed two stacked copies of the same text — collapsed into
+          a single tap-to-edit/tap-away-to-view toggle instead. Tapping
+          anywhere on this view that ISN'T an actual word (which stops its
+          own click from bubbling here) switches back to the editable
+          textarea via handleTapToEditInput. */}
+      {showReadOnlyInputView && (
+        <div ref={inputWordsRef} className="mb-2" onClick={handleTapToEditInput}>
           {isInputSpanish && <p className="text-xs text-ink-faint mb-1">Tap a word for its meaning:</p>}
           {sourceLines.map((line, i) => {
             if (!line.trim()) return null
-            const isSelected = Boolean(translatedText) && i === clampedInputLineIdx
+            const isSelected = i === clampedInputLineIdx
             return (
               <div key={i} className={`flex gap-2 leading-6 -mx-1 px-1 rounded-control transition ${selectedLineClasses(isSelected, false)}`}>
                 <span className="w-5 shrink-0 text-right text-xs text-ink-faint select-none">{i + 1}</span>
@@ -685,7 +768,7 @@ export default function TranslationView({ onBack }) {
         </div>
       )}
 
-      <div className="w-full bg-[#f9f9f9] border border-border rounded-control p-3 min-h-[120px] mb-2">
+      <div ref={outputWordsRef} className="w-full bg-[#f9f9f9] border border-border rounded-control p-3 min-h-[120px] mb-2">
         {translatedText ? (
           /* SAC-099 Part 2: the DOM here is already one flex row per line
              (number + text), so appending a small icon as one more flex

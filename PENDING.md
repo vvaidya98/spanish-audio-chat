@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-30 (SAC-100 shipped as v1.2v)
+## Last updated: 2026-08-30 (SAC-101 shipped as v1.2w)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -654,6 +654,12 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Auto-shows on navigation**: while checked, moving Prev/Next automatically fetches (or reuses a cached result for) the newly-selected line's grammar — no extra tap needed.
 - **Per-line caching, keyed by text**: each line's fetched explanation is cached by its own exact text, not its index — this self-invalidates correctly on a new Translate/variations action (new text = cache miss) without any manual cache-clearing logic.
 - Version bumped to v1.2v.
+
+### Shipped in v1.2w — SAC-101 (Fix Duplicate Input, Fix Tooltip Dismiss Regression, Inline Grammar Format)
+- **Fix 1**: the English/input box no longer shows two stacked copies of the text — collapsed into a single tap-to-edit/tap-away-to-view toggle (editable textarea while focused, read-only highlight-capable view otherwise). A real focus-timing bug (`.focus()` called before React removed the `hidden` class) was caught and fixed with a `useEffect`.
+- **Fix 2**: the word-click tooltip regression (not dismissing on outside click within Translate) was traced to `useClickOutside`'s boundary being the ENTIRE `TranslationView` rather than each box's own content — fixed by scoping it to two narrower per-box refs, matching the same pattern used elsewhere in the app.
+- **Fix 3**: Grammar's separate trailing English gloss sentence was replaced with inline parentheticals woven directly through the Spanish phrase (e.g. "Me muero (I'm dying) de (of) hambre (hunger)"). This is a shared endpoint/component with the Listening screen's own Grammar feature, so the format change applies to both.
+- Version bumped to v1.2w.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

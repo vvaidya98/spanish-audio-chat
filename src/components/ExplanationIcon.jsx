@@ -34,6 +34,15 @@ export function ExplanationIcon({ explanation, isOpen, onClick, className = '' }
 // grammar) everywhere it appears, including the Transcript's own ⓘ icons.
 // SAC-085: 💡 prefix added directly here (not at each call site) so both
 // this and ExplanationLoading below carry the same marker consistently.
+// SAC-101: the phrase + separate trailing literal-gloss sentence (e.g.
+// "'le trae el menú' — to-her brings the menu") was replaced with one line
+// that weaves the literal meaning inline as parentheticals directly after
+// each Spanish word/word-group (e.g. "Me (myself) muero (I die)..."),
+// matching server.js's `generateSentenceExplanations` prompt, which now
+// asks Claude to produce this format directly rather than post-processing
+// its output here. This component is shared with ListeningStoryView.jsx's
+// own Grammar block/Transcript ⓘ icons (same endpoint, same shape), so the
+// format change applies there identically too.
 export function ExplanationPanel({ explanation }) {
   if (!explanation) return null
 
@@ -41,9 +50,7 @@ export function ExplanationPanel({ explanation }) {
     <div className="mt-1 bg-success-light border border-border rounded-control px-3 py-2 text-small text-ink">
       <p className="mb-1.5">
         <span className="mr-1">💡</span>
-        <span className="font-semibold text-success">&ldquo;{explanation.phrase}&rdquo;</span>
-        {' — '}
-        <span className="text-ink-muted">{explanation.literalTranslation}</span>
+        <span className="font-semibold text-success">{explanation.inlinePhrase}</span>
       </p>
       <p className="mb-1.5">
         <span className="font-semibold">In English: </span>

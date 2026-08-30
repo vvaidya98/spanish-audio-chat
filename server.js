@@ -527,14 +527,13 @@ Respond with ONLY a JSON array (no markdown fences, no extra text), one object p
 [
   {
     "sentenceIndex": 0,
-    "phrase": "le trae el menú",
-    "literalTranslation": "to-her brings the menu",
-    "englishSyntax": "brings her the menu",
-    "pattern": "Spanish puts the object pronoun before the verb, not after it like English does."
+    "inlinePhrase": "Me (myself) muero (I die) de (of) hambre (hunger)",
+    "englishSyntax": "I'm starving",
+    "pattern": "Spanish uses a reflexive verb plus 'de' (of) — a construction with no direct English equivalent, unlike the plain English idiom."
   }
 ]
 
-"sentenceIndex" must be the 0-indexed position matching the numbered list above (the first sentence is 0). Include every sentence, even simple ones where the difference is small — pick whatever's most notable about that sentence's construction. "phrase" is a short excerpt (not the whole sentence) that best shows the difference.`,
+"sentenceIndex" must be the 0-indexed position matching the numbered list above (the first sentence is 0). Include every sentence, even simple ones where the difference is small — pick whatever's most notable about that sentence's construction. "inlinePhrase" is a short excerpt (not necessarily the whole sentence, but pick whatever best shows the difference) with the literal English meaning of each Spanish word or natural word-group written in parentheses directly after it, like the example above. Group 2-3 words into one parenthetical only when they form a single natural English concept (e.g. a reflexive pronoun + verb, or a contraction like "al"/"del") — otherwise use one parenthetical per word. Don't force a strict one-for-one word count; prioritize what reads naturally.`,
       },
     ],
   });
@@ -1172,7 +1171,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.2v', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.2w', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {
