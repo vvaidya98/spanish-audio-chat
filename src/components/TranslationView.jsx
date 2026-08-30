@@ -303,12 +303,24 @@ export default function TranslationView({ onBack }) {
       if (phrasings.length === 0) return
 
       setSourceText((prev) => [prev, ...phrasings].join('\n'))
-      // If the output box is still empty (variations requested before ever
-      // pressing Translate), seed its line 1 with the original sentence's
-      // own translation first — otherwise the appended lines alone would
-      // start at output line 1 while their corresponding input lines start
-      // at input line 2, permanently misaligning every line number after.
-      setTranslatedText((prev) => (prev ? [prev, ...translations].join('\n') : [data.originalTranslation, ...translations].join('\n')))
+      // The existing translatedText only actually corresponds to the
+      // current single-line source when it's ALSO exactly one line — any
+      // other shape (empty, because Translate was never pressed; or
+      // multiple lines, because the source was edited/replaced after an
+      // earlier multi-line translation, leaving stale unrelated content
+      // behind) means it does not reliably line up with this one input
+      // line. A live test caught the multi-line case specifically:
+      // appending onto stale leftover output produced more output lines
+      // than input lines, misaligned from the very first row. In both
+      // non-corresponding cases, replace line 1 with this call's own
+      // originalTranslation instead of trusting whatever was already
+      // there; only in the one-line case is appending onto the existing
+      // line 1 actually correct.
+      setTranslatedText((prev) => {
+        const prevLines = prev.split('\n')
+        const prevIsSingleLine = prev.trim() && prevLines.length === 1
+        return prevIsSingleLine ? [prev, ...translations].join('\n') : [data.originalTranslation, ...translations].join('\n')
+      })
       // Lets word-click/grammar work immediately on the newly-appended
       // Spanish lines in Auto mode, rather than waiting on a real
       // Translate press to (re)discover a direction this call already
