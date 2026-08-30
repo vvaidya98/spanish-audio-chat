@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-30 (SAC-098 shipped as v1.2t)
+## Last updated: 2026-08-30 (SAC-099 shipped as v1.2u)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -641,6 +641,13 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Sequential playback highlight (Part 3)**: new `speakLinesSequentially()` speaks each output line as its own chained utterance, highlighting whichever line is currently playing — separate state from the Part 2 selector, visually distinct treatment (border accent vs. background tint).
 - **Real bug caught via live testing**: the selector-reset call was originally inside `runTranslate()`'s shared success path, which `handleSpeak` also calls internally — meaning every Speak press silently reset the selector to line 1, violating the round's own "must not move the selector" requirement. Fixed by moving the reset into `handleTranslate` specifically.
 - Version bumped to v1.2t.
+
+### Shipped in v1.2u — SAC-099 (Mirrored Selected-Line Highlight + Audio Icon Repositioning + Remove Sentence-Level Save)
+- **Mirrored highlight**: the line selector's current line now highlights light-yellow (`bg-warn-light`) in BOTH the input and output boxes at once, staying in sync via Prev/Next.
+- **Color collision resolved**: SAC-098's "playing during sequential Speak" highlight already used yellow — re-homed it to coral (`bg-secondary-light`) so the two stay visually distinct even when they coincide on the same line.
+- **Audio icon repositioning**: moved from a fixed position to travel with the selected line (confirmed straightforward given the existing per-line flex-row DOM structure).
+- **Sentence-level Save button removed** from the Translate result entirely — saving still works via the existing word-click tooltip on every word. `QuickTranslateModal.jsx`'s own separate Save button is untouched.
+- Version bumped to v1.2u.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

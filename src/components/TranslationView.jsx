@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '../api'
-import { saveWord } from '../db'
 import { applySpanishVoice, applyEnglishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
 import ClickableSpanishText from './ClickableSpanishText'
 import { ExplanationPanel, ExplanationLoading } from './ExplanationIcon'
@@ -49,7 +48,6 @@ export default function TranslationView({ onBack }) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
-  const [wordSaved, setWordSaved] = useState(false)
   // SAC-095: null (not yet requested) | 'loading' | 'failed' | the
   // {phrase, literalTranslation, englishSyntax, pattern} explanation object
   // — same shape ExplanationPanel/ExplanationLoading already render
@@ -116,7 +114,6 @@ export default function TranslationView({ onBack }) {
     setTranslatedText('')
     setResultDirection(null)
     setError('')
-    setWordSaved(false)
     setActiveToken(null)
     setSelectedLineIdx(0)
     setSpeakingLineIdx(null)
@@ -147,7 +144,6 @@ export default function TranslationView({ onBack }) {
 
     setIsLoading(true)
     setError('')
-    setWordSaved(false)
 
     const isAuto = directionMode === 'auto'
     const body = isAuto
@@ -260,22 +256,6 @@ export default function TranslationView({ onBack }) {
     playTranslatedText(translatedLines[clampedSelectedLineIdx] || '', resultDirection)
   }
 
-  // SAC-094: same direction-aware field mapping as before, now driven by
-  // resultDirection (the resolved direction for the current result)
-  // instead of the old isSpanishToEnglish boolean.
-  const handleSaveToWords = async () => {
-    if (!translatedText) return
-    const spanish = resultDirection === 'es-en' ? sourceText : translatedText
-    const english = resultDirection === 'es-en' ? translatedText : sourceText
-    try {
-      await saveWord({ spanish, english, source: 'translate' })
-      setWordSaved(true)
-      setTimeout(() => setWordSaved(false), COPIED_MESSAGE_MS)
-    } catch (err) {
-      console.error('Could not save word:', err)
-    }
-  }
-
   const handleCopy = async () => {
     if (!translatedText) return
     try {
@@ -301,7 +281,6 @@ export default function TranslationView({ onBack }) {
     setDirectionMode('auto')
     setResultDirection(null)
     setError('')
-    setWordSaved(false)
     setActiveToken(null)
     setSelectedLineIdx(0)
     setSpeakingLineIdx(null)
@@ -328,15 +307,17 @@ export default function TranslationView({ onBack }) {
   const sourceLines = sourceText.split('\n')
   const translatedLines = translatedText.split('\n')
   const spanishLines = isInputSpanish ? sourceLines : isOutputSpanish ? translatedLines : []
-  // SAC-098: two independently-clamped indices derived from the same
-  // selectedLineIdx — the selector's own UI (Prev/Next boundaries) and
-  // Replay are clamped against the OUTPUT line count (what the selector's
-  // "Line N of M" actually counts), while Grammar's target is clamped
-  // against spanishLines specifically, since that may be the input side
-  // instead and — in an edge case where the input was edited after
-  // translating — could have a different line count than the output.
+  // SAC-098/099: independently-clamped indices derived from the same
+  // selectedLineIdx, one per array it might index into — the selector's
+  // own UI (Prev/Next boundaries) and Replay are clamped against the
+  // OUTPUT line count (what the selector's "Line N of M" actually
+  // counts); Grammar's target and the INPUT box's mirrored highlight are
+  // clamped against their own respective arrays, since an edit to one
+  // side after translating could leave it with a different line count
+  // than the other.
   const clampedSelectedLineIdx = translatedLines.length > 0 ? Math.min(selectedLineIdx, translatedLines.length - 1) : 0
   const clampedGrammarLineIdx = spanishLines.length > 0 ? Math.min(selectedLineIdx, spanishLines.length - 1) : 0
+  const clampedInputLineIdx = sourceLines.length > 0 ? Math.min(selectedLineIdx, sourceLines.length - 1) : 0
   const activeSpanishLine = spanishLines[clampedGrammarLineIdx] || ''
   // SAC-098 Part 3: the sequential-playback highlight only needs to
   // visibly matter once there's more than one line to distinguish —
@@ -447,6 +428,27 @@ export default function TranslationView({ onBack }) {
     }
   }
 
+  // SAC-099 Part 1: the shared selected-line highlight (mirrored across
+  // both boxes) — confirmed SAC-098's existing "currently playing during
+  // sequential Speak" highlight already used bg-warn-light (yellow)
+  // before picking a color for this new persistent one, per the round's
+  // own explicit ask. Since this round wants the PERSISTENT selection to
+  // be light-yellow specifically, that meant re-homing the transient
+  // playing highlight to a different color instead (bg-secondary-light,
+  // coral) rather than the other way around — the two must stay visually
+  // distinct even when they land on the same line at once. Background
+  // color is resolved via explicit if/else priority (never two competing
+  // bg-* utility classes on one element, which would leave the outcome to
+  // CSS rule order rather than a deliberate choice): playing (transient)
+  // takes visual priority over selected (persistent) when both apply,
+  // while the border-l-2 accent — a separate, non-conflicting CSS
+  // property — still marks the line as selected either way.
+  const selectedLineClasses = (isSelected, isPlaying) => {
+    const bg = isPlaying ? 'bg-secondary-light' : isSelected ? 'bg-warn-light' : ''
+    const border = isSelected ? 'border-primary' : 'border-transparent'
+    return `border-l-2 ${border} ${bg}`
+  }
+
   return (
     <div ref={rootRef}>
       <button
@@ -532,31 +534,43 @@ export default function TranslationView({ onBack }) {
 
       {/* SAC-095: the textarea above stays the live editable input — a
           native <textarea> can't host per-word clickable spans — so a
-          separate read-only clickable rendering of the same text appears
-          just below it when this is the Spanish side (manual 🇪🇸→🇬🇧, or
-          Auto once resolved to es-en). SAC-096 Part 3: rendered per-line,
-          numbered to match the gutter above. SAC-098: word-click here no
-          longer reports which line was clicked anywhere — it only opens
-          that word's own tooltip, per Part 2's explicit "no side effect on
-          grammar" requirement. */}
-      {isInputSpanish && sourceText.trim() && (
+          separate read-only rendering of the same text appears just below
+          it. SAC-096 Part 3: rendered per-line, numbered to match the
+          gutter above. SAC-098: word-click here has no side effect on
+          grammar targeting. SAC-099 Part 1: this block now also renders
+          for non-Spanish input (previously Spanish-only), specifically so
+          the selected-line highlight can be mirrored here too — English
+          lines render as plain text (no word-click, no "Tap a word" hint,
+          since there's nothing to click), Spanish lines keep the exact
+          existing ClickableSpanishText behavior unchanged. Only shown once
+          there's either Spanish text to click OR a result to mirror a
+          selection against — an English input with no translation yet has
+          no reason to show a redundant read-only copy of what's already
+          in the textarea above it. */}
+      {sourceText.trim() && (isInputSpanish || translatedText) && (
         <div className="mb-2">
-          <p className="text-xs text-ink-faint mb-1">Tap a word for its meaning:</p>
-          {sourceLines.map((line, i) =>
-            line.trim() ? (
-              <div key={i} className="flex gap-2 leading-6">
+          {isInputSpanish && <p className="text-xs text-ink-faint mb-1">Tap a word for its meaning:</p>}
+          {sourceLines.map((line, i) => {
+            if (!line.trim()) return null
+            const isSelected = Boolean(translatedText) && i === clampedInputLineIdx
+            return (
+              <div key={i} className={`flex gap-2 leading-6 -mx-1 px-1 rounded-control transition ${selectedLineClasses(isSelected, false)}`}>
                 <span className="w-5 shrink-0 text-right text-xs text-ink-faint select-none">{i + 1}</span>
                 <p className="text-body text-ink break-words flex-1">
-                  <ClickableSpanishText
-                    text={line}
-                    lineId={`input-${i}`}
-                    activeToken={activeToken}
-                    onActiveTokenChange={setActiveToken}
-                  />
+                  {isInputSpanish ? (
+                    <ClickableSpanishText
+                      text={line}
+                      lineId={`input-${i}`}
+                      activeToken={activeToken}
+                      onActiveTokenChange={setActiveToken}
+                    />
+                  ) : (
+                    line
+                  )}
                 </p>
               </div>
-            ) : null
-          )}
+            )
+          })}
         </div>
       )}
 
@@ -628,55 +642,47 @@ export default function TranslationView({ onBack }) {
 
       <div className="w-full bg-[#f9f9f9] border border-border rounded-control p-3 min-h-[120px] mb-2">
         {translatedText ? (
-          <div className="flex items-start gap-2">
-            <div className="flex-1 min-w-0">
-              {/* SAC-096 Part 3: numbered per line, matching the input
-                  gutter's numbering — Part 3's own line-correspondence
-                  guarantee (server.js's multilineInstruction) is what
-                  makes line N here reliably match line N of the input.
-                  SAC-098: two independent, visually distinct highlights —
-                  a left accent border for the selector's current line
-                  (persistent), a background tint for whichever line is
-                  currently being spoken during sequential playback
-                  (transient, only rendered once there's more than one
-                  line) — never the same visual treatment, so the two
-                  can't be mistaken for one another even if they coincide
-                  on the same line. */}
-              {translatedLines.map((line, i) => {
-                const isSelected = i === clampedSelectedLineIdx
-                const isPlaying = hasMultipleTranslatedLines && i === speakingLineIdx
-                return (
-                  <div
-                    key={i}
-                    className={`flex gap-2 leading-6 -mx-1 px-1 rounded-control transition ${
-                      isSelected ? 'border-l-2 border-primary bg-primary-light/40' : 'border-l-2 border-transparent'
-                    } ${isPlaying ? 'bg-warn-light' : ''}`}
+          /* SAC-099 Part 2: the DOM here is already one flex row per line
+             (number + text), so appending a small icon as one more flex
+             child of ONLY the selected line's row was genuinely
+             straightforward — no brittle gutter/positioning math needed.
+             Replaces the old fixed-position replay button that always
+             sat outside the line list; there is no longer a
+             visually-separate "always there" replay control at all, it
+             now travels with the selection. Sized 24px (this file's own
+             existing convention for the selector's Prev/Next buttons, SAC-
+             098), not the app's usual 44px, since a full-size button would
+             dominate a single 24px-tall line row. */
+          translatedLines.map((line, i) => {
+            const isSelected = i === clampedSelectedLineIdx
+            const isPlaying = hasMultipleTranslatedLines && i === speakingLineIdx
+            return (
+              <div key={i} className={`flex items-start gap-2 leading-6 -mx-1 px-1 rounded-control transition ${selectedLineClasses(isSelected, isPlaying)}`}>
+                <span className="w-5 shrink-0 text-right text-xs text-ink-faint select-none pt-0.5">{i + 1}</span>
+                <p className="text-body text-ink whitespace-pre-wrap break-words flex-1">
+                  {isOutputSpanish ? (
+                    <ClickableSpanishText
+                      text={line}
+                      lineId={`output-${i}`}
+                      activeToken={activeToken}
+                      onActiveTokenChange={setActiveToken}
+                    />
+                  ) : (
+                    line
+                  )}
+                </p>
+                {isSelected && (
+                  <button
+                    onClick={handleReplay}
+                    title="Replay this line"
+                    className="shrink-0 min-w-[24px] min-h-[24px] flex items-center justify-center text-sm text-ink-faint hover:text-primary transition"
                   >
-                    <span className="w-5 shrink-0 text-right text-xs text-ink-faint select-none">{i + 1}</span>
-                    <p className="text-body text-ink whitespace-pre-wrap break-words flex-1">
-                      {isOutputSpanish ? (
-                        <ClickableSpanishText
-                          text={line}
-                          lineId={`output-${i}`}
-                          activeToken={activeToken}
-                          onActiveTokenChange={setActiveToken}
-                        />
-                      ) : (
-                        line
-                      )}
-                    </p>
-                  </div>
-                )
-              })}
-            </div>
-            <button
-              onClick={handleReplay}
-              title="Replay this line"
-              className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg text-ink-faint hover:text-primary hover:bg-primary-light transition shrink-0"
-            >
-              🔊
-            </button>
-          </div>
+                    🔊
+                  </button>
+                )}
+              </div>
+            )
+          })
         ) : (
           <p className="text-body text-ink-faint italic">Translation will appear here</p>
         )}
@@ -713,14 +719,6 @@ export default function TranslationView({ onBack }) {
         className="w-full min-h-[44px] mb-2 rounded-control bg-primary-light text-primary-text font-semibold hover:bg-primary-light/70 transition disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {copied ? '✓ Copied!' : 'Copy'}
-      </button>
-
-      <button
-        onClick={handleSaveToWords}
-        disabled={!translatedText}
-        className="w-full min-h-[44px] rounded-control bg-secondary-light text-secondary-text font-semibold hover:bg-secondary-light/70 transition disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {wordSaved ? '✓ Saved!' : '🔖 Save to My Words'}
       </button>
     </div>
   )
