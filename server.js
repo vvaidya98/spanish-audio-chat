@@ -973,7 +973,19 @@ app.post('/api/generate-suggested-topics', async (req, res) => {
 app.post('/api/translate', async (req, res) => {
   const { text, sourceLanguage, targetLanguage } = req.body;
 
-  if (!text || !sourceLanguage || !targetLanguage) {
+  if (!text) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  // SAC-094: sourceLanguage/targetLanguage stay required for the existing
+  // explicit-direction callers (QuickTranslateModal.jsx, and
+  // TranslationView.jsx's own manual-direction radios) — unchanged prompt,
+  // unchanged response shape for them. Omitting both is the new "Auto
+  // detect" signal: one call does both detection and translation (no
+  // second round trip), returning an extra detectedSourceLanguage field the
+  // explicit-direction path never needs to send.
+  const autoDetect = !sourceLanguage && !targetLanguage;
+  if (!autoDetect && (!sourceLanguage || !targetLanguage)) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
@@ -984,16 +996,38 @@ app.post('/api/translate', async (req, res) => {
       messages: [
         {
           role: 'user',
-          content: `Translate the following ${sourceLanguage} text to ${targetLanguage}. Return ONLY the translation, nothing else.
+          content: autoDetect
+            ? `Detect whether the following text is Spanish or English, then translate it to the other language.
+
+Text: "${text}"
+
+Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly this shape:
+
+{
+  "detectedSourceLanguage": "Spanish",
+  "translated": "the translation here"
+}
+
+"detectedSourceLanguage" must be exactly "Spanish" or "English".`
+            : `Translate the following ${sourceLanguage} text to ${targetLanguage}. Return ONLY the translation, nothing else.
 
 Text: "${text}"`,
         },
       ],
     });
 
-    const translatedText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+    const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
     logApiCall('/api/translate', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
-    res.json({ translated: translatedText });
+
+    if (autoDetect) {
+      const parsed = extractJson(rawText);
+      res.json({
+        translated: typeof parsed.translated === 'string' ? parsed.translated : '',
+        detectedSourceLanguage: typeof parsed.detectedSourceLanguage === 'string' ? parsed.detectedSourceLanguage : null,
+      });
+    } else {
+      res.json({ translated: rawText });
+    }
   } catch (error) {
     console.error('[translate] Claude API error:', error);
     res.status(500).json({ error: error.message || 'Translation failed' });
@@ -1056,7 +1090,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.2o', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.2p', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {

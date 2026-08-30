@@ -65,4 +65,42 @@ export function applySpanishVoice(utterance) {
 // Raised 75ms -> 150ms in Phase 2.7 (Prompt #016), then 150ms -> 175ms
 // (Prompt #017) after 150ms confirmed still-insufficient on a real
 // listen-test.
+// SAC-094: no existing English voice helper before this — Quick Speak/
+// replay on Translate needed one for an English-to-Spanish result's target
+// (English) text, so this mirrors applySpanishVoice's own structure (try
+// preferred langs, fall back to any matching voice, degrade gracefully to
+// lang-only if none match) rather than a bespoke one-off.
+const ENGLISH_VOICE_LANG_PREFERENCE = ['en-US', 'en-GB']
+
+let loggedEnglishVoiceOnce = false
+
+export function applyEnglishVoice(utterance) {
+  utterance.lang = 'en-US'
+  try {
+    const voices = window.speechSynthesis?.getVoices() || []
+    let englishVoice = null
+    for (const preferredLang of ENGLISH_VOICE_LANG_PREFERENCE) {
+      englishVoice = voices.find((v) => v.lang === preferredLang)
+      if (englishVoice) break
+    }
+    if (!englishVoice) englishVoice = voices.find((v) => v.lang?.startsWith('en'))
+
+    if (englishVoice) {
+      utterance.voice = englishVoice
+      utterance.lang = englishVoice.lang
+    }
+
+    if (!loggedEnglishVoiceOnce) {
+      loggedEnglishVoiceOnce = true
+      if (englishVoice) {
+        console.log(`[speechUtils] Using voice: "${englishVoice.name}" (${englishVoice.lang})`)
+      } else {
+        console.log('[speechUtils] No English voice found via getVoices() — falling back to lang=en-US only.')
+      }
+    }
+  } catch (err) {
+    console.error('Could not select an English voice:', err)
+  }
+}
+
 export const SPEAK_START_DELAY_MS = 175

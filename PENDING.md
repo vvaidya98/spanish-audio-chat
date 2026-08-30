@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-29 (SAC-093 shipped as v1.2o)
+## Last updated: 2026-08-30 (SAC-094 shipped as v1.2p)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -605,6 +605,15 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **Larger word display**: ~2x font size (18px → 36px) on both card faces, card height increased to fit without clipping.
 - **🇪🇸/🇬🇧 flags** added to whichever face is currently showing that language (addendum to the original request).
 - Version bumped to v1.2o.
+
+### Shipped in v1.2p — SAC-094 (Translate Tab: Radio Buttons, Auto-Detect, Quick Speak, Replay, Flags)
+- **Three radio buttons** (Auto detect/Spanish→English/English→Spanish) replace the old toggle button, styled like SAC-093's My Words radios.
+- **Auto detect**: `/api/translate` now supports omitting `sourceLanguage`/`targetLanguage` to detect + translate in one call (backward compatible — `QuickTranslateModal.jsx` unaffected).
+- **Flag timing**: manual modes show flags immediately; Auto mode shows a neutral 🌐 placeholder until a translation completes, then resets on further edits.
+- **Quick Speak button**: runs the same translate logic as Translate, then auto-plays the result in the correct target-language voice.
+- **Replay icon**: replays the displayed translation without re-calling the API.
+- New `speechUtils.js` export `applyEnglishVoice()` (no English-voice helper existed before this).
+- Version bumped to v1.2p.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
