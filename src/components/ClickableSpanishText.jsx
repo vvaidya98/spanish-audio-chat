@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { apiFetch } from '../api'
 import { tokenize } from './HoverableText'
 import WordSaveTooltip from './WordSaveTooltip'
@@ -11,21 +11,24 @@ import WordSaveTooltip from './WordSaveTooltip'
 // rather than building a new lookup endpoint. Renders the exact same
 // WordSaveTooltip popup every other click-word surface uses, so the result
 // looks and behaves identically once a definition is available.
-export default function ClickableSpanishText({ text, className = '' }) {
-  const [clickedIdx, setClickedIdx] = useState(null)
+//
+// SAC-096: only ever used by TranslationView.jsx, which now renders one
+// instance per line (for the line-number gutter). Which word is open is
+// lifted to the parent (`activeToken`/`onActiveTokenChange`) rather than
+// kept as this component's own local state, so only one tooltip can ever
+// be open across every line at once — with per-instance local state,
+// opening a word on line 3 would leave an already-open tooltip on line 1
+// visibly stuck open too, undermining the Part 1 dismiss fix at the
+// multi-line level. `lineId` (the line's own index) is folded into the
+// token key so keys stay unique across every line's instance, and is
+// reported back via `onWordInteract` so the parent can track which line
+// the user last interacted with for Part 2's grammar binding.
+export default function ClickableSpanishText({ text, className = '', lineId, activeToken, onActiveTokenChange, onWordInteract }) {
   // Keyed by lowercased word — 'loading' while a fetch is in flight, a
   // definition string once it resolves, or 'failed' if it errored. Doubles
   // as a small session cache: re-clicking the same word (even a different
   // occurrence of it) never re-fetches.
   const [definitions, setDefinitions] = useState({})
-
-  // Same reasoning as HoverableText.jsx's own SAC-092 fix: without this,
-  // clickedIdx could point at a stale, now-irrelevant token position after
-  // the underlying text changes (a re-translation, a direction switch, an
-  // edit).
-  useEffect(() => {
-    setClickedIdx(null)
-  }, [text])
 
   const fetchDefinition = async (cleaned) => {
     setDefinitions((prev) => ({ ...prev, [cleaned]: 'loading' }))
@@ -46,8 +49,10 @@ export default function ClickableSpanishText({ text, className = '' }) {
 
   const handleWordClick = (e, cleaned, idx) => {
     e.stopPropagation()
-    const willOpen = clickedIdx !== idx
-    setClickedIdx(willOpen ? idx : null)
+    const key = `${lineId}:${idx}`
+    const willOpen = activeToken !== key
+    onActiveTokenChange(willOpen ? key : null)
+    if (onWordInteract) onWordInteract(lineId)
     if (!willOpen) return
     if (!definitions[cleaned]) fetchDefinition(cleaned)
   }
@@ -61,6 +66,8 @@ export default function ClickableSpanishText({ text, className = '' }) {
         if (!/[a-zà-ÿ]/i.test(cleaned)) {
           return <span key={idx}>{chunk}</span>
         }
+        const key = `${lineId}:${idx}`
+        const isOpen = activeToken === key
         const def = definitions[cleaned]
         return (
           <span
@@ -69,17 +76,17 @@ export default function ClickableSpanishText({ text, className = '' }) {
             onClick={(e) => handleWordClick(e, cleaned, idx)}
           >
             {chunk}
-            {clickedIdx === idx && def === 'loading' && (
+            {isOpen && def === 'loading' && (
               <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 whitespace-nowrap bg-secondary-light border border-secondary text-secondary-text text-xs px-2 py-1 rounded-control shadow-lg z-20">
                 Loading…
               </span>
             )}
-            {clickedIdx === idx && def === 'failed' && (
+            {isOpen && def === 'failed' && (
               <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 whitespace-nowrap bg-secondary-light border border-secondary text-secondary-text text-xs px-2 py-1 rounded-control shadow-lg z-20">
                 Unavailable
               </span>
             )}
-            {clickedIdx === idx && def && def !== 'loading' && def !== 'failed' && (
+            {isOpen && def && def !== 'loading' && def !== 'failed' && (
               <WordSaveTooltip word={cleaned} english={def} source="translate-word" />
             )}
           </span>

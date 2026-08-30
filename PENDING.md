@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-30 (SAC-095 shipped as v1.2q)
+## Last updated: 2026-08-30 (SAC-096 shipped as v1.2r)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -621,6 +621,14 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - **On-demand grammar**: reuses the existing `/api/generate-sentence-explanations` endpoint and `ExplanationPanel`/`ExplanationLoading` components unmodified — same story-screen look, fetched only on tap.
 - **Clear button** now also resets `directionMode` back to Auto (a real gap caught via testing — the spec's "back to the tab's initial state" wasn't fully honored at first).
 - Version bumped to v1.2q.
+
+### Shipped in v1.2r — SAC-096 (Tooltip Fix, Grammar Line-Binding, Line Numbers, Variations)
+- **Tooltip dismiss fix (Part 1)**: root cause confirmed by direct code read before patching — none of `HoverableText.jsx`, `ClickableSpanishText.jsx`, or `ListeningStoryView.jsx`'s Vocabulary Preview ever had a document-level click-outside listener; each only closed via re-clicking the same word or (HoverableText only) `onMouseLeave`, which never fires on touch and never fires for a tap elsewhere on the page. Fixed at the shared level with a new `src/useClickOutside.js` hook, applied at all three surfaces (each still owns its own open/close state — the hook doesn't require merging that). Verified live on all three: Translate, the story Transcript, and Vocabulary Preview all now dismiss correctly on an outside tap, confirmed with real `page.mouse.click()` events (not `element.click()`, which doesn't fire `mousedown` and gave a false negative during testing).
+- **Grammar line-binding (Part 2)**: `TranslationView.jsx` now tracks `activeLineIdx` (default line 1), updated whenever a word is tapped on a specific line in either the input or output word-click blocks. Grammar fetches only that line's text and labels itself "Grammar — line N."
+- **Line numbers (Part 3)**: a synced-scroll gutter added to the input textarea (no native way to attach numbers to textarea lines directly, so a separate column is kept in lockstep via `scrollTop` sync); the output box and the word-click blocks render per-line with matching numbers. `/api/translate`'s prompt now explicitly instructs Claude to preserve line count/order for multi-line input — this did NOT already hold before this round (confirmed by reading the prompt: it never asked for line preservation at all), so line correspondence was not a safe assumption and needed a real backend fix, not just a frontend display change.
+- **Variations button (Part 4)**: new `/api/generate-variations` endpoint — one Claude call returns 2-3 alternate phrasings of a single input line (auto-detecting its language) plus their translations. Enabled only when input has exactly one non-empty line. A live test caught a real alignment bug: if the user generates variations before ever pressing Translate, appending only the alternates' translations to an empty output box left input line 1 (the original) with no corresponding output line 1, shifting every subsequent line number out of sync — fixed by having the same endpoint also return the original line's own translation (`originalTranslation`), still one call, and using it to seed output line 1 when the output box was empty.
+- `ClickableSpanishText.jsx` redesigned to be fully controlled from `TranslationView.jsx` (an `activeToken`/`onActiveTokenChange` pair instead of its own local `clickedIdx`) — necessary once Part 3 required one instance per line: with per-instance local state, opening a word tooltip on one line wouldn't have closed an already-open one on a different line, which would have partially undermined the Part 1 fix at the multi-line level.
+- Version bumped to v1.2r.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

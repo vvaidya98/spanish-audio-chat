@@ -12,6 +12,7 @@ import { saveSession, generateSessionId } from '../db'
 import { logEvent } from '../analytics'
 import { apiFetch } from '../api'
 import { applySpanishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
+import { useClickOutside } from '../useClickOutside'
 
 const SENTENCE_GAP_MS = 1300
 const SPEED_OPTIONS = [1.0, 0.8, 0.6, 0.4]
@@ -237,6 +238,11 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack, onP
   // stacking translations (same "only one open at a time" pattern this
   // file already uses for openTranslationIdx/openExplanationIdx below).
   const [expandedVocabWord, setExpandedVocabWord] = useState(null)
+  const vocabPreviewRef = useRef(null)
+  // SAC-096 Part 1: same missing-dismiss gap as HoverableText/Translate —
+  // expandedVocabWord only ever closed via re-clicking the same word or the
+  // [currentIndex] reset below, never via a click elsewhere on the page.
+  useClickOutside(vocabPreviewRef, () => setExpandedVocabWord(null), expandedVocabWord !== null)
   // Guards the hybrid loading strategy's second phase (see the effects
   // below) so the bulk sentences-1..N fetch fires exactly once per story,
   // the first time playback starts — not again on every subsequent
@@ -1211,7 +1217,7 @@ function ListeningStoryView({ scenario, storyData, customDifficulty, onBack, onP
                 pattern), minimizing vertical space until a user actually
                 wants a specific translation. */}
             {showVocabularyPreview && currentSentence && (
-              <div className="mt-2 bg-secondary-light border border-border rounded-control p-3">
+              <div ref={vocabPreviewRef} className="mt-2 bg-secondary-light border border-border rounded-control p-3">
                 <p className="text-small font-semibold text-ink mb-1">📖 Vocabulary Preview</p>
                 {vocabularyPreview[currentIndex] ? (
                   (() => {

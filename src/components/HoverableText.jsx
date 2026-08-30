@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import WordSaveTooltip from './WordSaveTooltip'
+import { useClickOutside } from '../useClickOutside'
 
 // Exported so SAC-095's ClickableSpanishText.jsx (Translate's on-demand
 // word-click, which has no precomputed vocabulary map to key off) can split
@@ -21,6 +22,14 @@ export function tokenize(text) {
 export default function HoverableText({ text, translation, vocabulary = {}, className = '', showHoverTranslation = true }) {
   const [hovered, setHovered] = useState(false)
   const [clickedIdx, setClickedIdx] = useState(null)
+  const containerRef = useRef(null)
+
+  // SAC-096 Part 1: closes an open tooltip on a click/tap anywhere outside
+  // this sentence's own container — see useClickOutside.js for why this
+  // was missing entirely before. A click on a word inside this container
+  // is NOT "outside" (contains() catches it), so the existing same-word
+  // toggle and cross-word switch above are unaffected.
+  useClickOutside(containerRef, () => setClickedIdx(null), clickedIdx !== null)
 
   // A real pre-existing bug surfaced while testing SAC-090's save flow, not
   // caused by it: this component is reused (not remounted) across sentence
@@ -40,6 +49,7 @@ export default function HoverableText({ text, translation, vocabulary = {}, clas
 
   return (
     <div
+      ref={containerRef}
       className={className}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => {

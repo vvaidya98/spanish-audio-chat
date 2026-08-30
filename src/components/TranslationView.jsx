@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '../api'
 import { saveWord } from '../db'
 import { applySpanishVoice, applyEnglishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
 import ClickableSpanishText from './ClickableSpanishText'
 import { ExplanationPanel, ExplanationLoading } from './ExplanationIcon'
+import { useClickOutside } from '../useClickOutside'
 
 const COPIED_MESSAGE_MS = 2000
 
@@ -52,6 +53,34 @@ export default function TranslationView({ onBack }) {
   // — same shape ExplanationPanel/ExplanationLoading already render
   // elsewhere, reused here as-is.
   const [grammarState, setGrammarState] = useState(null)
+  // SAC-096 Part 1: which word's tooltip is open, as a "<lineId>:<idx>"
+  // key. Lifted up here (rather than left as each ClickableSpanishText
+  // instance's own local state) specifically because Part 3 now renders
+  // one instance PER LINE — with per-instance state, opening a word on one
+  // line wouldn't close an already-open tooltip on a different line.
+  const [activeToken, setActiveToken] = useState(null)
+  // SAC-096 Part 2: index of the line the user last tapped a word on,
+  // driving which line Grammar targets. Defaults to line 1 (index 0) per
+  // spec until a real interaction updates it.
+  const [activeLineIdx, setActiveLineIdx] = useState(0)
+  const [variationsLoading, setVariationsLoading] = useState(false)
+
+  const rootRef = useRef(null)
+  const textareaRef = useRef(null)
+  const gutterRef = useRef(null)
+
+  // SAC-096 Part 1: closes an open word tooltip on a tap/click anywhere
+  // outside this view — see useClickOutside.js for why nothing did this
+  // before. A click on a word inside this view isn't "outside" (contains()
+  // catches it), so the existing same-word/cross-word toggle logic in
+  // ClickableSpanishText is unaffected.
+  useClickOutside(rootRef, () => setActiveToken(null), activeToken !== null)
+
+  const handleTextareaScroll = () => {
+    if (gutterRef.current && textareaRef.current) {
+      gutterRef.current.scrollTop = textareaRef.current.scrollTop
+    }
+  }
 
   const handleDirectionChange = (mode) => {
     setDirectionMode(mode)
@@ -60,6 +89,8 @@ export default function TranslationView({ onBack }) {
     setResultDirection(null)
     setError('')
     setWordSaved(false)
+    setActiveToken(null)
+    setActiveLineIdx(0)
   }
 
   const handleSourceTextChange = (e) => {
@@ -71,6 +102,11 @@ export default function TranslationView({ onBack }) {
     if (directionMode === 'auto' && resultDirection) {
       setResultDirection(null)
     }
+    // SAC-096: an edit can shift every word's token index on this line, so
+    // a tooltip left open against the old text would point at the wrong
+    // word — close it, same reasoning HoverableText.jsx's own [text]-keyed
+    // reset already uses.
+    setActiveToken(null)
   }
 
   // SAC-094: single shared translate action for both Translate and Speak
@@ -112,6 +148,10 @@ export default function TranslationView({ onBack }) {
         : directionMode
       setTranslatedText(data.translated)
       setResultDirection(resolved)
+      // SAC-096 Part 2: a fresh result is effectively a new session for
+      // grammar-binding purposes — default back to line 1 rather than
+      // keeping a stale index from whatever was previously on screen.
+      setActiveLineIdx(0)
       return { translated: data.translated, direction: resolved }
     } catch (err) {
       setError('Error connecting to translation service')
@@ -176,6 +216,8 @@ export default function TranslationView({ onBack }) {
     setResultDirection(null)
     setError('')
     setWordSaved(false)
+    setActiveToken(null)
+    setActiveLineIdx(0)
   }
 
   // SAC-094: manual modes know their flags immediately (the direction is
@@ -192,24 +234,37 @@ export default function TranslationView({ onBack }) {
   // (before that, per spec, neither box is clickable yet).
   const isInputSpanish = directionMode === 'es-en' || (directionMode === 'auto' && resultDirection === 'es-en')
   const isOutputSpanish = directionMode === 'en-es' || (directionMode === 'auto' && resultDirection === 'en-es')
-  const spanishText = isInputSpanish ? sourceText : isOutputSpanish ? translatedText : ''
 
-  // SAC-095: resets whenever the actual Spanish text changes for any
-  // reason (edit, direction switch, a new translation result, Clear) —
-  // one effect covers every call site rather than resetting grammarState
-  // manually in each handler.
+  // SAC-096 Part 3: split into lines for the gutter/per-line rendering.
+  // Whichever side is Spanish drives Part 2's grammar-line binding.
+  const sourceLines = sourceText.split('\n')
+  const translatedLines = translatedText.split('\n')
+  const spanishLines = isInputSpanish ? sourceLines : isOutputSpanish ? translatedLines : []
+  const clampedLineIdx = spanishLines.length > 0 ? Math.min(activeLineIdx, spanishLines.length - 1) : 0
+  const activeSpanishLine = spanishLines[clampedLineIdx] || ''
+
+  // SAC-096 Part 4: variations only make sense for exactly one line of
+  // input — zero is nothing to vary, multiple is ambiguous which line to
+  // vary (per the round's own explicit rule).
+  const nonEmptySourceLineCount = sourceLines.filter((l) => l.trim()).length
+  const canGenerateVariations = nonEmptySourceLineCount === 1 && !isLoading && !variationsLoading
+
+  // SAC-095/096: resets whenever the specific line Grammar targets
+  // changes for any reason (edit to that line, a new translation result,
+  // switching which line is active) — one effect covers every call site
+  // rather than resetting grammarState manually everywhere.
   useEffect(() => {
     setGrammarState(null)
-  }, [spanishText])
+  }, [activeSpanishLine])
 
   const fetchGrammar = async () => {
-    if (!spanishText.trim()) return
+    if (!activeSpanishLine.trim()) return
     setGrammarState('loading')
     try {
       const response = await apiFetch('/api/generate-sentence-explanations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sentences: [spanishText], difficulty: 'Beginner' }),
+        body: JSON.stringify({ sentences: [activeSpanishLine], difficulty: 'Beginner' }),
       })
       if (!response.ok) throw new Error(`status ${response.status}`)
       const data = await response.json()
@@ -221,8 +276,57 @@ export default function TranslationView({ onBack }) {
     }
   }
 
+  // SAC-096 Part 4: one combined call returns both the alternate phrasings
+  // AND their translations — deliberately not two separate calls (generate
+  // phrasings, then translate them), which would double this on-demand
+  // action's own API cost for no benefit. The endpoint detects the input
+  // line's language itself, so this works whether or not a translation has
+  // already run (Auto mode with no result yet included).
+  const handleGenerateVariations = async () => {
+    if (!canGenerateVariations) return
+    setVariationsLoading(true)
+    setError('')
+    try {
+      const response = await apiFetch('/api/generate-variations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: sourceText.trim() }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        setError(data.error || 'Could not generate variations')
+        return
+      }
+      const variations = data.variations || []
+      const phrasings = variations.map((v) => v.phrasing).filter(Boolean)
+      const translations = variations.map((v) => v.translation).filter(Boolean)
+      if (phrasings.length === 0) return
+
+      setSourceText((prev) => [prev, ...phrasings].join('\n'))
+      // If the output box is still empty (variations requested before ever
+      // pressing Translate), seed its line 1 with the original sentence's
+      // own translation first — otherwise the appended lines alone would
+      // start at output line 1 while their corresponding input lines start
+      // at input line 2, permanently misaligning every line number after.
+      setTranslatedText((prev) => (prev ? [prev, ...translations].join('\n') : [data.originalTranslation, ...translations].join('\n')))
+      // Lets word-click/grammar work immediately on the newly-appended
+      // Spanish lines in Auto mode, rather than waiting on a real
+      // Translate press to (re)discover a direction this call already
+      // detected. Manual modes don't consult resultDirection for this, so
+      // this is a no-op there.
+      if (directionMode === 'auto' && data.detectedLanguage) {
+        setResultDirection(data.detectedLanguage.toLowerCase().startsWith('sp') ? 'es-en' : 'en-es')
+      }
+    } catch (err) {
+      console.error('Could not generate variations:', err)
+      setError('Could not generate variations')
+    } finally {
+      setVariationsLoading(false)
+    }
+  }
+
   return (
-    <div>
+    <div ref={rootRef}>
       <button
         onClick={onBack}
         className="min-h-[44px] mb-4 px-3 -ml-1 rounded-control text-primary-text font-semibold hover:bg-primary-light transition flex items-center gap-1"
@@ -262,27 +366,74 @@ export default function TranslationView({ onBack }) {
       </div>
 
       <p className="text-small text-ink-muted mb-1">{inputFlag || '🌐'}</p>
-      <textarea
-        value={sourceText}
-        onChange={handleSourceTextChange}
-        placeholder="Enter text to translate..."
-        rows={5}
-        className="w-full bg-[#f9f9f9] border border-border rounded-control p-3 text-body text-ink mb-2 resize-none focus:outline-none focus:border-primary transition"
-      />
+      {/* SAC-096 Part 3: a small numbered gutter to the left of the
+          textarea, synced to it via scrollTop on scroll — a native
+          <textarea> has no per-line markup to attach numbers to directly,
+          so this is a separate column kept visually in lockstep instead
+          (matching leading-6 line-height and top padding on both). */}
+      <div className="flex border border-border rounded-control bg-[#f9f9f9] mb-2 focus-within:border-primary transition overflow-hidden">
+        <div
+          ref={gutterRef}
+          className="w-7 shrink-0 pt-3 pb-3 text-right pr-1 text-xs text-ink-faint select-none overflow-hidden"
+        >
+          {sourceLines.map((_, i) => (
+            <div key={i} className="leading-6">
+              {i + 1}
+            </div>
+          ))}
+        </div>
+        <textarea
+          ref={textareaRef}
+          value={sourceText}
+          onChange={handleSourceTextChange}
+          onScroll={handleTextareaScroll}
+          placeholder="Enter text to translate..."
+          rows={5}
+          className="flex-1 bg-transparent p-3 text-body text-ink leading-6 resize-none focus:outline-none transition"
+        />
+      </div>
 
       {/* SAC-095: the textarea above stays the live editable input — a
           native <textarea> can't host per-word clickable spans — so a
           separate read-only clickable rendering of the same text appears
           just below it when this is the Spanish side (manual 🇪🇸→🇬🇧, or
-          Auto once resolved to es-en). */}
+          Auto once resolved to es-en). SAC-096 Part 3: rendered per-line,
+          numbered to match the gutter above. */}
       {isInputSpanish && sourceText.trim() && (
         <div className="mb-2">
           <p className="text-xs text-ink-faint mb-1">Tap a word for its meaning:</p>
-          <p className="text-body text-ink break-words">
-            <ClickableSpanishText text={sourceText} />
-          </p>
+          {sourceLines.map((line, i) =>
+            line.trim() ? (
+              <div key={i} className="flex gap-2 leading-6">
+                <span className="w-5 shrink-0 text-right text-xs text-ink-faint select-none">{i + 1}</span>
+                <p className="text-body text-ink break-words flex-1">
+                  <ClickableSpanishText
+                    text={line}
+                    lineId={`input-${i}`}
+                    activeToken={activeToken}
+                    onActiveTokenChange={setActiveToken}
+                    onWordInteract={() => setActiveLineIdx(i)}
+                  />
+                </p>
+              </div>
+            ) : null
+          )}
         </div>
       )}
+
+      {/* SAC-096 Part 4: enabled only for exactly one non-empty input
+          line — a title explains why when it's disabled for that reason,
+          rather than a silently-grayed-out button. */}
+      <div className="mb-2">
+        <button
+          onClick={handleGenerateVariations}
+          disabled={!canGenerateVariations}
+          title={nonEmptySourceLineCount !== 1 ? 'Enter exactly one line to generate variations' : undefined}
+          className="text-small text-ink-muted hover:text-ink transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {variationsLoading ? 'Generating...' : '✨ More ways to say this'}
+        </button>
+      </div>
 
       {/* SAC-095: compact bordered/plain buttons on one line, replacing the
           old filled bg-primary Translate/Speak row plus a separate Clear
@@ -318,12 +469,33 @@ export default function TranslationView({ onBack }) {
       )}
 
       <p className="text-small text-ink-muted mb-1">{outputFlag || '🌐'}</p>
-      <div className="w-full bg-[#f9f9f9] border border-border rounded-control p-3 min-h-[120px] mb-2 flex items-start gap-2">
+      <div className="w-full bg-[#f9f9f9] border border-border rounded-control p-3 min-h-[120px] mb-2">
         {translatedText ? (
-          <>
-            <p className="text-body text-ink whitespace-pre-wrap flex-1 break-words">
-              {isOutputSpanish ? <ClickableSpanishText text={translatedText} /> : translatedText}
-            </p>
+          <div className="flex items-start gap-2">
+            <div className="flex-1 min-w-0">
+              {/* SAC-096 Part 3: numbered per line, matching the input
+                  gutter's numbering — Part 3's own line-correspondence
+                  guarantee (server.js's multilineInstruction) is what
+                  makes line N here reliably match line N of the input. */}
+              {translatedLines.map((line, i) => (
+                <div key={i} className="flex gap-2 leading-6">
+                  <span className="w-5 shrink-0 text-right text-xs text-ink-faint select-none">{i + 1}</span>
+                  <p className="text-body text-ink whitespace-pre-wrap break-words flex-1">
+                    {isOutputSpanish ? (
+                      <ClickableSpanishText
+                        text={line}
+                        lineId={`output-${i}`}
+                        activeToken={activeToken}
+                        onActiveTokenChange={setActiveToken}
+                        onWordInteract={() => setActiveLineIdx(i)}
+                      />
+                    ) : (
+                      line
+                    )}
+                  </p>
+                </div>
+              ))}
+            </div>
             <button
               onClick={handleReplay}
               title="Replay"
@@ -331,7 +503,7 @@ export default function TranslationView({ onBack }) {
             >
               🔊
             </button>
-          </>
+          </div>
         ) : (
           <p className="text-body text-ink-faint italic">Translation will appear here</p>
         )}
@@ -341,13 +513,20 @@ export default function TranslationView({ onBack }) {
           fetches on tap only, never automatically alongside Translate/
           Speak's own call. Reuses ExplanationPanel/ExplanationLoading
           as-is (same generate-sentence-explanations endpoint SAC-081/085
-          already use for the story screen), not a new explanation style. */}
-      {spanishText.trim() && (
+          already use for the story screen), not a new explanation style.
+          SAC-096 Part 2: now bound to whichever line was last interacted
+          with (activeLineIdx, default line 1) instead of the whole block,
+          and labeled with that line number so it's never ambiguous which
+          sentence is being explained. */}
+      {spanishLines.some((l) => l.trim()) && (
         <div className="mb-2">
           {grammarState === null && (
             <button onClick={fetchGrammar} className="text-small text-ink-muted hover:text-ink transition">
-              💡 Grammar
+              💡 Grammar — line {clampedLineIdx + 1}
             </button>
+          )}
+          {grammarState !== null && (
+            <p className="text-xs text-ink-faint mb-1">Grammar — line {clampedLineIdx + 1}</p>
           )}
           {grammarState === 'loading' && <ExplanationLoading />}
           {grammarState === 'failed' && <ExplanationLoading failed />}

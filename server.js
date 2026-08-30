@@ -109,6 +109,10 @@ function featureForEndpoint(endpoint) {
   // Explanations/Vocabulary Preview buckets above, but still a distinct
   // cost driver worth its own line.
   if (endpoint === '/api/generate-word-example') return 'Word Examples';
+  // SAC-096: own bucket — an on-demand, opt-in action (never triggered
+  // automatically alongside Translate/Speak), worth its own visibility
+  // like every other distinct-cost-driver endpoint above.
+  if (endpoint === '/api/generate-variations') return 'Variations';
   return 'Conversation';
 }
 
@@ -989,6 +993,18 @@ app.post('/api/translate', async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
+  // SAC-096 Part 3: the original prompt never asked Claude to preserve line
+  // structure, so a multi-line input had no guaranteed line-for-line
+  // correspondence in the output (Claude could merge/reorder/split lines
+  // freely) — the frontend's line-number gutter needs that correspondence
+  // to be reliable, not assumed. Only added when the text actually has
+  // multiple lines, so single-line requests (the overwhelming majority)
+  // keep the exact original prompt wording.
+  const hasMultipleLines = text.includes('\n');
+  const multilineInstruction = hasMultipleLines
+    ? '\n\nThe text contains multiple lines separated by newlines. Translate each line independently and return the exact same number of lines, in the same order, separated by newlines in your output. Do not merge, split, or reorder lines, and preserve any blank lines.'
+    : '';
+
   try {
     const message = await client.messages.create({
       model: 'claude-opus-4-8',
@@ -997,7 +1013,7 @@ app.post('/api/translate', async (req, res) => {
         {
           role: 'user',
           content: autoDetect
-            ? `Detect whether the following text is Spanish or English, then translate it to the other language.
+            ? `Detect whether the following text is Spanish or English, then translate it to the other language.${multilineInstruction}
 
 Text: "${text}"
 
@@ -1009,7 +1025,7 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly t
 }
 
 "detectedSourceLanguage" must be exactly "Spanish" or "English".`
-            : `Translate the following ${sourceLanguage} text to ${targetLanguage}. Return ONLY the translation, nothing else.
+            : `Translate the following ${sourceLanguage} text to ${targetLanguage}. Return ONLY the translation, nothing else.${multilineInstruction}
 
 Text: "${text}"`,
         },
@@ -1031,6 +1047,72 @@ Text: "${text}"`,
   } catch (error) {
     console.error('[translate] Claude API error:', error);
     res.status(500).json({ error: error.message || 'Translation failed' });
+  }
+});
+
+/**
+ * POST /api/generate-variations
+ * SAC-096 Part 4: given one sentence, returns 2-3 alternate phrasings in
+ * the SAME language as the input, each with a translation into the OTHER
+ * language — one combined call rather than generating phrasings and
+ * translating them separately, so this on-demand action never doubles its
+ * own API cost. Detects the input's language itself (rather than requiring
+ * the frontend's current direction selection to already be resolved),
+ * since this button is enabled purely on "exactly one line of input,"
+ * independent of whether a translation/auto-detect has run yet. Also
+ * returns the ORIGINAL sentence's own translation (still one call) — a
+ * live test caught that without it, a user who hits this button before
+ * ever pressing Translate would get an output box containing only the
+ * alternates' translations, with no line 1 for the original input line,
+ * shifting every line number out of sync between the input and output
+ * boxes (Part 3's whole point).
+ */
+app.post('/api/generate-variations', async (req, res) => {
+  const { text } = req.body;
+
+  if (!text || !text.trim()) {
+    return res.status(400).json({ error: 'Missing required field: text' });
+  }
+
+  try {
+    const message = await client.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 1024,
+      messages: [
+        {
+          role: 'user',
+          content: `Detect whether the following sentence is Spanish or English. Translate it into the OTHER language. Then write 2-3 alternate, natural ways to phrase the SAME meaning in the SAME language as the original sentence (different wording/structure, not just synonyms of one word), and for each alternate phrasing give its translation into the OTHER language too.
+
+Sentence: "${text}"
+
+Respond with ONLY a JSON object (no markdown fences, no extra text) in exactly this shape:
+
+{
+  "detectedLanguage": "Spanish",
+  "originalTranslation": "translation of the original sentence",
+  "variations": [
+    { "phrasing": "alternate phrasing 1", "translation": "its translation" },
+    { "phrasing": "alternate phrasing 2", "translation": "its translation" }
+  ]
+}
+
+"detectedLanguage" must be exactly "Spanish" or "English". Include 2-3 entries in "variations".`,
+        },
+      ],
+    });
+
+    const rawText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+    logApiCall('/api/generate-variations', 'claude-opus-4-8', message.usage.input_tokens, message.usage.output_tokens);
+
+    const parsed = extractJson(rawText);
+    res.json({
+      detectedLanguage: typeof parsed.detectedLanguage === 'string' ? parsed.detectedLanguage : null,
+      originalTranslation: typeof parsed.originalTranslation === 'string' ? parsed.originalTranslation : '',
+      variations: Array.isArray(parsed.variations) ? parsed.variations : [],
+    });
+  } catch (error) {
+    console.error('[generate-variations] Claude API error:', error);
+    res.status(500).json({ error: error.message || 'Could not generate variations' });
   }
 });
 
@@ -1090,7 +1172,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.2q', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.2r', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {
