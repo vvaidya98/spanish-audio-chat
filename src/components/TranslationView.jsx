@@ -15,7 +15,9 @@ const COPIED_MESSAGE_MS = 2000
 // resolved es-en/en-es for the CURRENT text on screen (see resultDirection
 // below), not necessarily the live radio selection — it picks the voice
 // for the language actually being spoken (the target/translated language),
-// not the source.
+// not the source. SAC-098: now also used for the Replay icon's single-LINE
+// playback (Part 2), not just a whole-block replay — same helper either
+// way, just given a shorter string.
 function playTranslatedText(text, direction) {
   if (!text) return
   try {
@@ -59,15 +61,31 @@ export default function TranslationView({ onBack }) {
   // one instance PER LINE — with per-instance state, opening a word on one
   // line wouldn't close an already-open tooltip on a different line.
   const [activeToken, setActiveToken] = useState(null)
-  // SAC-096 Part 2: index of the line the user last tapped a word on,
-  // driving which line Grammar targets. Defaults to line 1 (index 0) per
-  // spec until a real interaction updates it.
-  const [activeLineIdx, setActiveLineIdx] = useState(0)
+  // SAC-098 Part 2: index of the line the shared selector currently points
+  // to — governs BOTH which line Grammar explains and which line Replay
+  // plays. Replaces SAC-096 Part 2's "grammar binds to whichever line was
+  // last word-clicked" — that overloaded word-click with a side effect on
+  // grammar targeting; this is a single, deliberately-moved control
+  // instead. Defaults to line 1 (index 0) on a new result.
+  const [selectedLineIdx, setSelectedLineIdx] = useState(0)
+  // SAC-098 Part 3: which OUTPUT line is currently being spoken during a
+  // full sequential (all-lines) playback — null when nothing is playing.
+  // Deliberately separate from selectedLineIdx: triggering Speak must
+  // never move the persistent selector, per the round's explicit
+  // constraint, and the two need visually distinct treatment so they're
+  // never confused for the same thing.
+  const [speakingLineIdx, setSpeakingLineIdx] = useState(null)
   const [variationsLoading, setVariationsLoading] = useState(false)
 
   const rootRef = useRef(null)
   const textareaRef = useRef(null)
   const gutterRef = useRef(null)
+  // SAC-098 Part 3: guards the chained per-line utterances the same way
+  // this codebase's other speech engines guard theirs (e.g.
+  // ListeningStoryView.jsx's utteranceTokenRef) — bumping it invalidates
+  // any utterance still scheduled/chaining from a superseded sequence
+  // (a new Speak press, Clear, a direction change, or unmount).
+  const speakTokenRef = useRef(0)
 
   // SAC-096 Part 1: closes an open word tooltip on a tap/click anywhere
   // outside this view — see useClickOutside.js for why nothing did this
@@ -75,6 +93,16 @@ export default function TranslationView({ onBack }) {
   // catches it), so the existing same-word/cross-word toggle logic in
   // ClickableSpanishText is unaffected.
   useClickOutside(rootRef, () => setActiveToken(null), activeToken !== null)
+
+  // SAC-098: a scheduled-but-not-yet-fired chained utterance surviving
+  // unmount would be the same class of bug SAC-075 fixed for
+  // ListeningStoryView.jsx — bumping the token on unmount invalidates
+  // anything still pending.
+  useEffect(() => {
+    return () => {
+      speakTokenRef.current++
+    }
+  }, [])
 
   const handleTextareaScroll = () => {
     if (gutterRef.current && textareaRef.current) {
@@ -90,7 +118,9 @@ export default function TranslationView({ onBack }) {
     setError('')
     setWordSaved(false)
     setActiveToken(null)
-    setActiveLineIdx(0)
+    setSelectedLineIdx(0)
+    setSpeakingLineIdx(null)
+    speakTokenRef.current++
   }
 
   const handleSourceTextChange = (e) => {
@@ -148,10 +178,6 @@ export default function TranslationView({ onBack }) {
         : directionMode
       setTranslatedText(data.translated)
       setResultDirection(resolved)
-      // SAC-096 Part 2: a fresh result is effectively a new session for
-      // grammar-binding purposes — default back to line 1 rather than
-      // keeping a stale index from whatever was previously on screen.
-      setActiveLineIdx(0)
       return { translated: data.translated, direction: resolved }
     } catch (err) {
       setError('Error connecting to translation service')
@@ -161,17 +187,77 @@ export default function TranslationView({ onBack }) {
     }
   }
 
-  const handleTranslate = () => {
-    runTranslate()
+  // SAC-098: the selector reset moved here from inside runTranslate() —
+  // Speak also calls runTranslate() internally (SAC-094's established
+  // "Speak reuses the exact same translate call, then plays it" design),
+  // and resetting the selector on every runTranslate() success meant every
+  // Speak press was silently resetting it too, directly violating this
+  // round's explicit "sequential playback must not move the persistent
+  // selector" constraint — caught via a live test that moved the selector
+  // to line 3 and watched it snap back to line 1 the instant Speak was
+  // pressed. A genuinely fresh Translate press still resets to line 1;
+  // Speak's own internal re-translate no longer touches it at all.
+  const handleTranslate = async () => {
+    const result = await runTranslate()
+    if (result) setSelectedLineIdx(0)
+  }
+
+  // SAC-098 Part 3: speaks every non-empty line in `lines` one at a time,
+  // chained via onend (not one combined multi-line utterance — the
+  // previous playTranslatedText(wholeBlock) approach had no per-line
+  // start/end boundary to hang a highlight off of, confirmed by reading
+  // the real code before building this). Highlights `speakingLineIdx` as
+  // each line starts, clears it once the sequence ends — deliberately
+  // never touches selectedLineIdx, so a persistent selector position
+  // survives a full Speak untouched, per the round's explicit constraint.
+  const speakLinesSequentially = (lines, direction) => {
+    window.speechSynthesis.cancel()
+    const token = ++speakTokenRef.current
+    const applyVoice = direction === 'es-en' ? applyEnglishVoice : applySpanishVoice
+
+    const speakLineAt = (idx) => {
+      if (token !== speakTokenRef.current) return
+      if (idx >= lines.length) {
+        setSpeakingLineIdx(null)
+        return
+      }
+      const line = lines[idx]
+      if (!line.trim()) {
+        speakLineAt(idx + 1)
+        return
+      }
+      setSpeakingLineIdx(idx)
+      const utterance = new SpeechSynthesisUtterance(line)
+      applyVoice(utterance)
+      utterance.onend = () => {
+        if (token !== speakTokenRef.current) return
+        speakLineAt(idx + 1)
+      }
+      utterance.onerror = () => {
+        if (token !== speakTokenRef.current) return
+        speakLineAt(idx + 1)
+      }
+      setTimeout(() => {
+        if (token !== speakTokenRef.current) return
+        window.speechSynthesis.speak(utterance)
+      }, SPEAK_START_DELAY_MS)
+    }
+
+    speakLineAt(0)
   }
 
   const handleSpeak = async () => {
     const result = await runTranslate()
-    if (result) playTranslatedText(result.translated, result.direction)
+    if (result) speakLinesSequentially(result.translated.split('\n'), result.direction)
   }
 
+  // SAC-098 Part 2: replays only the shared selector's current line (in
+  // its correct target-language voice), not the whole translated block —
+  // replaces SAC-094's original "replay everything" behavior. Reuses the
+  // same single-utterance playTranslatedText helper Speak used to use for
+  // the whole block, just given one line's text instead.
   const handleReplay = () => {
-    playTranslatedText(translatedText, resultDirection)
+    playTranslatedText(translatedLines[clampedSelectedLineIdx] || '', resultDirection)
   }
 
   // SAC-094: same direction-aware field mapping as before, now driven by
@@ -217,7 +303,9 @@ export default function TranslationView({ onBack }) {
     setError('')
     setWordSaved(false)
     setActiveToken(null)
-    setActiveLineIdx(0)
+    setSelectedLineIdx(0)
+    setSpeakingLineIdx(null)
+    speakTokenRef.current++
   }
 
   // SAC-094: manual modes know their flags immediately (the direction is
@@ -236,23 +324,45 @@ export default function TranslationView({ onBack }) {
   const isOutputSpanish = directionMode === 'en-es' || (directionMode === 'auto' && resultDirection === 'en-es')
 
   // SAC-096 Part 3: split into lines for the gutter/per-line rendering.
-  // Whichever side is Spanish drives Part 2's grammar-line binding.
+  // Whichever side is Spanish drives Grammar's targeting.
   const sourceLines = sourceText.split('\n')
   const translatedLines = translatedText.split('\n')
   const spanishLines = isInputSpanish ? sourceLines : isOutputSpanish ? translatedLines : []
-  const clampedLineIdx = spanishLines.length > 0 ? Math.min(activeLineIdx, spanishLines.length - 1) : 0
-  const activeSpanishLine = spanishLines[clampedLineIdx] || ''
+  // SAC-098: two independently-clamped indices derived from the same
+  // selectedLineIdx — the selector's own UI (Prev/Next boundaries) and
+  // Replay are clamped against the OUTPUT line count (what the selector's
+  // "Line N of M" actually counts), while Grammar's target is clamped
+  // against spanishLines specifically, since that may be the input side
+  // instead and — in an edge case where the input was edited after
+  // translating — could have a different line count than the output.
+  const clampedSelectedLineIdx = translatedLines.length > 0 ? Math.min(selectedLineIdx, translatedLines.length - 1) : 0
+  const clampedGrammarLineIdx = spanishLines.length > 0 ? Math.min(selectedLineIdx, spanishLines.length - 1) : 0
+  const activeSpanishLine = spanishLines[clampedGrammarLineIdx] || ''
+  // SAC-098 Part 3: the sequential-playback highlight only needs to
+  // visibly matter once there's more than one line to distinguish —
+  // per the round's own explicit "unnecessary" call for a single line.
+  const hasMultipleTranslatedLines = translatedLines.filter((l) => l.trim()).length >= 2
+
+  const handlePrevLine = () => setSelectedLineIdx((i) => Math.max(0, i - 1))
+  const handleNextLine = () => setSelectedLineIdx((i) => Math.min(translatedLines.length - 1, i + 1))
 
   // SAC-096 Part 4: variations only make sense for exactly one line of
   // input — zero is nothing to vary, multiple is ambiguous which line to
-  // vary (per the round's own explicit rule).
+  // vary (per the round's own explicit rule). SAC-098 Part 1: the button
+  // itself is now hidden (not just disabled) outside that one case —
+  // showVariationsButton drives rendering, canGenerateVariations still
+  // guards the click/loading state.
   const nonEmptySourceLineCount = sourceLines.filter((l) => l.trim()).length
-  const canGenerateVariations = nonEmptySourceLineCount === 1 && !isLoading && !variationsLoading
+  const showVariationsButton = nonEmptySourceLineCount === 1
+  const canGenerateVariations = showVariationsButton && !isLoading && !variationsLoading
 
-  // SAC-095/096: resets whenever the specific line Grammar targets
+  // SAC-095/098: resets whenever the specific line Grammar targets
   // changes for any reason (edit to that line, a new translation result,
-  // switching which line is active) — one effect covers every call site
-  // rather than resetting grammarState manually everywhere.
+  // moving the shared selector) — one effect covers every call site
+  // rather than resetting grammarState manually everywhere. SAC-098 Part
+  // 2: moving the selector must clear any shown explanation rather than
+  // auto-fetching a new one — this effect already does exactly that
+  // (grammarState -> null), the user taps Grammar again to fetch fresh.
   useEffect(() => {
     setGrammarState(null)
   }, [activeSpanishLine])
@@ -405,12 +515,30 @@ export default function TranslationView({ onBack }) {
         />
       </div>
 
+      {/* SAC-098 Part 1: moved here, directly beneath the input box (line 1
+          of a single-line input), and now fully hidden — not just
+          disabled — outside the one case it's meaningful for. */}
+      {showVariationsButton && (
+        <div className="mb-2">
+          <button
+            onClick={handleGenerateVariations}
+            disabled={!canGenerateVariations}
+            className="text-small text-ink-muted hover:text-ink transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {variationsLoading ? 'Generating...' : '✨ More ways to say this'}
+          </button>
+        </div>
+      )}
+
       {/* SAC-095: the textarea above stays the live editable input — a
           native <textarea> can't host per-word clickable spans — so a
           separate read-only clickable rendering of the same text appears
           just below it when this is the Spanish side (manual 🇪🇸→🇬🇧, or
           Auto once resolved to es-en). SAC-096 Part 3: rendered per-line,
-          numbered to match the gutter above. */}
+          numbered to match the gutter above. SAC-098: word-click here no
+          longer reports which line was clicked anywhere — it only opens
+          that word's own tooltip, per Part 2's explicit "no side effect on
+          grammar" requirement. */}
       {isInputSpanish && sourceText.trim() && (
         <div className="mb-2">
           <p className="text-xs text-ink-faint mb-1">Tap a word for its meaning:</p>
@@ -424,7 +552,6 @@ export default function TranslationView({ onBack }) {
                     lineId={`input-${i}`}
                     activeToken={activeToken}
                     onActiveTokenChange={setActiveToken}
-                    onWordInteract={() => setActiveLineIdx(i)}
                   />
                 </p>
               </div>
@@ -432,20 +559,6 @@ export default function TranslationView({ onBack }) {
           )}
         </div>
       )}
-
-      {/* SAC-096 Part 4: enabled only for exactly one non-empty input
-          line — a title explains why when it's disabled for that reason,
-          rather than a silently-grayed-out button. */}
-      <div className="mb-2">
-        <button
-          onClick={handleGenerateVariations}
-          disabled={!canGenerateVariations}
-          title={nonEmptySourceLineCount !== 1 ? 'Enter exactly one line to generate variations' : undefined}
-          className="text-small text-ink-muted hover:text-ink transition disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {variationsLoading ? 'Generating...' : '✨ More ways to say this'}
-        </button>
-      </div>
 
       {/* SAC-095: compact bordered/plain buttons on one line, replacing the
           old filled bg-primary Translate/Speak row plus a separate Clear
@@ -481,6 +594,38 @@ export default function TranslationView({ onBack }) {
       )}
 
       <p className="text-small text-ink-muted mb-1">{outputFlag || '🌐'}</p>
+
+      {/* SAC-098 Part 2: a single small shared header — governs both which
+          line Grammar explains and which line Replay plays. Deliberately
+          compact (a 24px-tall row), matching this tab's existing emphasis
+          on minimizing vertical space. Shown whenever there's a result,
+          even a single-line one (Prev/Next are simply both boundary-
+          disabled in that case, same convention as flashcard navigation
+          elsewhere in this app). */}
+      {translatedText && (
+        <div className="flex items-center justify-center gap-2 mb-1 text-xs text-ink-muted">
+          <button
+            onClick={handlePrevLine}
+            disabled={clampedSelectedLineIdx === 0}
+            aria-label="Previous line"
+            className="min-w-[24px] min-h-[24px] flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed hover:text-ink transition"
+          >
+            ◀
+          </button>
+          <span>
+            Line {clampedSelectedLineIdx + 1} of {translatedLines.length}
+          </span>
+          <button
+            onClick={handleNextLine}
+            disabled={clampedSelectedLineIdx === translatedLines.length - 1}
+            aria-label="Next line"
+            className="min-w-[24px] min-h-[24px] flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed hover:text-ink transition"
+          >
+            ▶
+          </button>
+        </div>
+      )}
+
       <div className="w-full bg-[#f9f9f9] border border-border rounded-control p-3 min-h-[120px] mb-2">
         {translatedText ? (
           <div className="flex items-start gap-2">
@@ -488,29 +633,45 @@ export default function TranslationView({ onBack }) {
               {/* SAC-096 Part 3: numbered per line, matching the input
                   gutter's numbering — Part 3's own line-correspondence
                   guarantee (server.js's multilineInstruction) is what
-                  makes line N here reliably match line N of the input. */}
-              {translatedLines.map((line, i) => (
-                <div key={i} className="flex gap-2 leading-6">
-                  <span className="w-5 shrink-0 text-right text-xs text-ink-faint select-none">{i + 1}</span>
-                  <p className="text-body text-ink whitespace-pre-wrap break-words flex-1">
-                    {isOutputSpanish ? (
-                      <ClickableSpanishText
-                        text={line}
-                        lineId={`output-${i}`}
-                        activeToken={activeToken}
-                        onActiveTokenChange={setActiveToken}
-                        onWordInteract={() => setActiveLineIdx(i)}
-                      />
-                    ) : (
-                      line
-                    )}
-                  </p>
-                </div>
-              ))}
+                  makes line N here reliably match line N of the input.
+                  SAC-098: two independent, visually distinct highlights —
+                  a left accent border for the selector's current line
+                  (persistent), a background tint for whichever line is
+                  currently being spoken during sequential playback
+                  (transient, only rendered once there's more than one
+                  line) — never the same visual treatment, so the two
+                  can't be mistaken for one another even if they coincide
+                  on the same line. */}
+              {translatedLines.map((line, i) => {
+                const isSelected = i === clampedSelectedLineIdx
+                const isPlaying = hasMultipleTranslatedLines && i === speakingLineIdx
+                return (
+                  <div
+                    key={i}
+                    className={`flex gap-2 leading-6 -mx-1 px-1 rounded-control transition ${
+                      isSelected ? 'border-l-2 border-primary bg-primary-light/40' : 'border-l-2 border-transparent'
+                    } ${isPlaying ? 'bg-warn-light' : ''}`}
+                  >
+                    <span className="w-5 shrink-0 text-right text-xs text-ink-faint select-none">{i + 1}</span>
+                    <p className="text-body text-ink whitespace-pre-wrap break-words flex-1">
+                      {isOutputSpanish ? (
+                        <ClickableSpanishText
+                          text={line}
+                          lineId={`output-${i}`}
+                          activeToken={activeToken}
+                          onActiveTokenChange={setActiveToken}
+                        />
+                      ) : (
+                        line
+                      )}
+                    </p>
+                  </div>
+                )
+              })}
             </div>
             <button
               onClick={handleReplay}
-              title="Replay"
+              title="Replay this line"
               className="min-w-[44px] min-h-[44px] flex items-center justify-center text-lg text-ink-faint hover:text-primary hover:bg-primary-light transition shrink-0"
             >
               🔊
@@ -526,19 +687,19 @@ export default function TranslationView({ onBack }) {
           Speak's own call. Reuses ExplanationPanel/ExplanationLoading
           as-is (same generate-sentence-explanations endpoint SAC-081/085
           already use for the story screen), not a new explanation style.
-          SAC-096 Part 2: now bound to whichever line was last interacted
-          with (activeLineIdx, default line 1) instead of the whole block,
-          and labeled with that line number so it's never ambiguous which
-          sentence is being explained. */}
+          SAC-098 Part 2: now bound to the shared selector's line instead
+          of whichever line was last word-clicked, and labeled with that
+          line number so it's never ambiguous which sentence is being
+          explained. */}
       {spanishLines.some((l) => l.trim()) && (
         <div className="mb-2">
           {grammarState === null && (
             <button onClick={fetchGrammar} className="text-small text-ink-muted hover:text-ink transition">
-              💡 Grammar — line {clampedLineIdx + 1}
+              💡 Grammar — line {clampedGrammarLineIdx + 1}
             </button>
           )}
           {grammarState !== null && (
-            <p className="text-xs text-ink-faint mb-1">Grammar — line {clampedLineIdx + 1}</p>
+            <p className="text-xs text-ink-faint mb-1">Grammar — line {clampedGrammarLineIdx + 1}</p>
           )}
           {grammarState === 'loading' && <ExplanationLoading />}
           {grammarState === 'failed' && <ExplanationLoading failed />}

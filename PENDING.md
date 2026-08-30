@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-30 (SAC-096 shipped as v1.2r, hotfixed same-day as v1.2s)
+## Last updated: 2026-08-30 (SAC-098 shipped as v1.2t)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -634,6 +634,13 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - Production verification of v1.2r caught a real bug: translating a multi-line source, then replacing it with a new unrelated single line without re-translating, then generating variations, appended new translations onto the stale old multi-line output instead of treating it as no-longer-corresponding — produced more output lines than input lines, misaligned from row one.
 - Fixed: only append onto the existing output when it's already exactly one line; otherwise rebuild output line 1 from the same API call's own `originalTranslation`.
 - Version bumped to v1.2s (same day as v1.2r).
+
+### Shipped in v1.2t — SAC-098 (Unified Line Selector + Inline Variations Button + Sequential Playback Highlight)
+- **Variations button (Part 1)**: moved to directly beneath the input textarea; now fully hidden (not disabled) outside the exactly-one-line case.
+- **Unified line selector (Part 2)**: word-click no longer affects which line's grammar is shown (its `onWordInteract` callback was removed entirely). A new compact "◀ Line N of M ▶" control governs both Grammar's target line and per-line Replay.
+- **Sequential playback highlight (Part 3)**: new `speakLinesSequentially()` speaks each output line as its own chained utterance, highlighting whichever line is currently playing — separate state from the Part 2 selector, visually distinct treatment (border accent vs. background tint).
+- **Real bug caught via live testing**: the selector-reset call was originally inside `runTranslate()`'s shared success path, which `handleSpeak` also calls internally — meaning every Speak press silently reset the selector to line 1, violating the round's own "must not move the selector" requirement. Fixed by moving the reset into `handleTranslate` specifically.
+- Version bumped to v1.2t.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
