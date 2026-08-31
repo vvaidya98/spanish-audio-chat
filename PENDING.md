@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-31 (SAC-103 shipped as v1.2y)
+## Last updated: 2026-08-31 (SAC-104 shipped as v1.2z)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -680,6 +680,16 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - Version bumped to v1.2y.
 
 **Open question for Vinay — not built, needs clarification:** SAC-103's prompt referenced "the Grammar Q&A tutor (SAC-102)" as an existing feature to apply a style update to. A full search of this codebase (components, server.js, CLAUDE.md, PENDING.md) found no such feature anywhere — no chat/ask-a-grammar-question surface has ever been built here under any name. Possibilities: (a) it was planned/discussed elsewhere (a different session, a doc, verbally) but never actually reached this repo, (b) the SAC-102 numbering was assigned to it in error, (c) it's a genuinely new feature this app doesn't have yet and SAC-103 assumed it already existed. Not built this round (would have been a large, unrequested scope addition to a content-and-style round) — flagging here so a future round can either point to where "SAC-102" actually lives, or define it as new work if that's what's wanted.
+
+### Shipped in v1.2z — SAC-104 (Synced English Highlight, Progressive Sentence Build-Up, Infinitive/Article Categories, Re-Authored Content)
+- **`englishTokens`/`englishSpan` data model** replaces the old `english`/`englishWord` strings — each slot now carries an authored, unambiguous word-index range into a pre-tokenized English sentence, driving the highlight with zero runtime substring search (avoiding a repeat of SAC-097's original "to"-matching bug).
+- **Synced highlight**: the English sentence highlights whichever word/phrase the currently-quizzed slot corresponds to, moving in Spanish quiz order — deliberately jumping around relative to English reading order (e.g. int-5 "I see you in the park" quizzes "you" before "I see", matching Spanish "Te veo..."). Caption shrunk to a bare "Word N of M".
+- **Progressive build-up row**: the Spanish sentence's shape is visible from the first slot — fixed words in place (grey), unanswered slots as blanks, filling in as each slot is answered. The active slot's blank shares the exact same highlight classes as the English highlight, so the two are visually tied together. Once complete, this same row becomes the final assembled-sentence display (word-click/save + audio) — no second, duplicate "assembled sentence" block.
+- **Grey treatment for fixed words**, applied consistently in both the build-up row and the completed sentence view (a new opt-in `mutedChunkIndices` prop on `ClickableSpanishText`, purely additive — `TranslationView.jsx` is unaffected).
+- **Two new categories**: `article` (el/la/los/las/un/una, gender/number agreement, same-family distractors) and `infinitive` (a plain-form verb after a modal/helper verb, e.g. "salir" after "podemos", other-infinitive distractors).
+- **Clearer fixed-vs-slot authoring rule** applied and all 45 sentences re-authored under it — converted 15 previously-fixed articles and 5 previously-fixed post-modal infinitives into real slots across all three tiers. Deliberately scope-bounded to what the round explicitly named (articles, post-modal infinitives, preposition-forks) — other word classes that the same general rule would arguably also support converting (some fixed "trigger" verbs like "Es"/"Dudo"/"Siento", possessives like "mis", certain nouns/adjectives) were left as-is, flagged as a disclosed scope boundary rather than silently expanded.
+- **Verification script extended**: validates the new `englishSpan`/`englishTokens` shape, checks article/infinitive slots have same-type-only distractors, and heuristically flags (as warnings) any remaining fixed article or fixed post-modal infinitive for manual review. Proven against a deliberately-planted violation (both flags fired correctly) before being trusted on the real re-authored content, which now passes with 0 errors and 0 warnings.
+- Version bumped to v1.2z.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)

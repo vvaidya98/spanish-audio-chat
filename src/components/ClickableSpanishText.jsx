@@ -23,7 +23,23 @@ import WordSaveTooltip from './WordSaveTooltip'
 // token key so keys stay unique across every line's instance, and is
 // reported back via `onWordInteract` so the parent can track which line
 // the user last interacted with for Part 2's grammar binding.
-export default function ClickableSpanishText({ text, className = '', lineId, activeToken, onActiveTokenChange, onWordInteract }) {
+//
+// SAC-104: optional `mutedChunkIndices` (a Set of raw tokenize() chunk
+// indices) lets a caller flag specific words as visually muted/grey —
+// Sentence Builder's completed-sentence view uses this to keep its
+// fixed-word grey treatment consistent even once the build-up row
+// becomes the final assembled-sentence display, without touching click/
+// save behavior at all. Purely additive and opt-in — TranslationView.jsx
+// never passes it, so its own rendering is completely unaffected.
+export default function ClickableSpanishText({
+  text,
+  className = '',
+  lineId,
+  activeToken,
+  onActiveTokenChange,
+  onWordInteract,
+  mutedChunkIndices,
+}) {
   // Keyed by lowercased word — 'loading' while a fetch is in flight, a
   // definition string once it resolves, or 'failed' if it errored. Doubles
   // as a small session cache: re-clicking the same word (even a different
@@ -69,10 +85,15 @@ export default function ClickableSpanishText({ text, className = '', lineId, act
         const key = `${lineId}:${idx}`
         const isOpen = activeToken === key
         const def = definitions[cleaned]
+        const isMuted = mutedChunkIndices?.has(idx)
         return (
           <span
             key={idx}
-            className="relative cursor-pointer border-b border-dotted border-secondary"
+            className={
+              isMuted
+                ? 'relative cursor-pointer border-b border-dotted border-secondary text-ink-faint'
+                : 'relative cursor-pointer border-b border-dotted border-secondary'
+            }
             onClick={(e) => handleWordClick(e, cleaned, idx)}
           >
             {chunk}

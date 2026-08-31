@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { applySpanishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
 import { shuffle, playCorrectBeep, playWrongBeep } from '../quizUtils'
 import ClickableSpanishText from './ClickableSpanishText'
+import { tokenize } from './HoverableText'
 import { useClickOutside } from '../useClickOutside'
 import { SENTENCE_BUILDER_CONTENT, SENTENCE_BUILDER_DIFFICULTIES } from '../data/sentenceBuilderContent'
 
@@ -57,6 +58,31 @@ export default function SentenceBuilderView({ onBack }) {
   const assembledSpanish = useMemo(() => {
     if (!currentSentence) return ''
     return currentSentence.parts.map((p) => (p.type === 'fixed' ? p.text : p.correctAnswer)).join(' ')
+  }, [currentSentence])
+
+  // SAC-104 Part 3: which raw tokenize() chunk indices (of assembledSpanish)
+  // come from a `fixed` part — used to keep fixed words grey once the
+  // build-up row becomes the completed-sentence display. Reconstructed by
+  // walking parts in order and tokenizing each part's own text/
+  // correctAnswer exactly the way tokenize(assembledSpanish) would see it:
+  // since assembledSpanish is just parts joined by a single space and none
+  // of our authored part texts have leading/trailing whitespace, the
+  // per-part chunk sequences concatenated with one whitespace chunk between
+  // each part line up exactly with tokenizing the whole string at once.
+  const mutedChunkIndices = useMemo(() => {
+    const indices = new Set()
+    if (!currentSentence) return indices
+    let chunkIdx = 0
+    currentSentence.parts.forEach((part, i) => {
+      const text = part.type === 'fixed' ? part.text : part.correctAnswer
+      const partChunks = tokenize(text)
+      partChunks.forEach((c) => {
+        if (part.type === 'fixed' && /[a-zà-ÿ]/i.test(c)) indices.add(chunkIdx)
+        chunkIdx++
+      })
+      if (i < currentSentence.parts.length - 1) chunkIdx++ // the joining space
+    })
+    return indices
   }, [currentSentence])
 
   const resetForNewSentence = () => {
@@ -181,15 +207,36 @@ export default function SentenceBuilderView({ onBack }) {
       </p>
 
       <div className="mb-5 bg-surface rounded-card shadow-sm border border-border p-6">
-        {/* SAC-103 Part 2: the English sentence is now static reference
-            text — no moving/jumping highlight. A plain caption below it
-            says which word is currently being quizzed instead. */}
-        <p className="text-heading-2 text-ink leading-relaxed">{currentSentence.english}</p>
+        {/* SAC-104 Part 1: the English sentence highlights whichever word/
+            phrase corresponds to the slot currently being quizzed — driven
+            entirely by each slot's authored englishSpan (a word-index range
+            into englishTokens), never a runtime substring search. This
+            highlight moves in SPANISH quiz order, which often jumps around
+            relative to English reading order — deliberately, to train the
+            brain toward real Spanish word order (e.g. noun-then-adjective
+            instead of English's adjective-then-noun). No highlight once the
+            sentence is complete (there's no "current" slot anymore). */}
+        <p className="text-heading-2 text-ink leading-relaxed">
+          {currentSentence.englishTokens.map((tok, i) => {
+            const inActiveSpan =
+              !isSentenceComplete && currentSlot && i >= currentSlot.englishSpan[0] && i <= currentSlot.englishSpan[1]
+            return (
+              <span key={i} className={inActiveSpan ? 'bg-primary-light text-primary-text px-0.5 rounded' : ''}>
+                {tok}
+                {i < currentSentence.englishTokens.length - 1 ? ' ' : ''}
+              </span>
+            )
+          })}
+        </p>
 
-        {!isSentenceComplete ? (
+        {!isSentenceComplete && (
           <>
+            {/* SAC-104 Part 1: shrunk to a bare position indicator — the
+                highlighted English word above now carries what the old
+                restated-word caption used to say, so repeating it here
+                would be redundant. */}
             <p className="text-small text-ink-muted mt-2">
-              Word {slotIdx + 1} of {slotParts.length} — the word for &ldquo;{currentSlot.englishWord}&rdquo;
+              Word {slotIdx + 1} of {slotParts.length}
             </p>
 
             {feedback?.correct && (
@@ -223,16 +270,30 @@ export default function SentenceBuilderView({ onBack }) {
               ))}
             </div>
           </>
-        ) : (
-          <div className="mt-4">
-            <p className="text-small font-semibold text-ink-muted mb-1">Your sentence:</p>
-            <div ref={assembledRef} className="flex items-start gap-2">
-              <p className="text-body text-ink break-words flex-1">
+        )}
+
+        {/* SAC-104 Part 2: a single row shows the Spanish sentence's shape
+            from the very first slot — fixed words in place (grey, Part 3),
+            unanswered slots as blanks, the currently-active slot's blank
+            synced with Part 1's English highlight above. Once every slot is
+            answered, this SAME row becomes the final assembled sentence
+            (word-click/save + audio) rather than showing a second, separate
+            "assembled sentence" block — SAC-103's old completed-state
+            display is folded into this one to avoid duplicating it. */}
+        <p className="text-small font-semibold text-ink-muted mt-4 mb-1">
+          {isSentenceComplete ? 'Your sentence:' : 'Building your sentence:'}
+        </p>
+        <div ref={assembledRef} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {isSentenceComplete ? (
+            <>
+              <p className="text-body break-words flex-1">
                 <ClickableSpanishText
                   text={assembledSpanish}
                   lineId="assembled"
                   activeToken={activeToken}
                   onActiveTokenChange={setActiveToken}
+                  mutedChunkIndices={mutedChunkIndices}
+                  className="text-ink"
                 />
               </p>
               <button
@@ -242,8 +303,48 @@ export default function SentenceBuilderView({ onBack }) {
               >
                 🔊
               </button>
-            </div>
+            </>
+          ) : (
+            (() => {
+              let seenSlots = -1
+              return currentSentence.parts.map((part, i) => {
+                if (part.type === 'fixed') {
+                  return (
+                    <span key={i} className="text-body text-ink-faint">
+                      {part.text}
+                    </span>
+                  )
+                }
+                seenSlots += 1
+                const isAnswered = seenSlots < slotIdx
+                const isActive = seenSlots === slotIdx
+                if (isAnswered) {
+                  return (
+                    <span key={i} className="text-body text-ink font-semibold">
+                      {part.correctAnswer}
+                    </span>
+                  )
+                }
+                const blankLen = Math.max(3, Math.min(part.correctAnswer.replace(/\s/g, '').length, 8))
+                return (
+                  <span
+                    key={i}
+                    className={
+                      isActive
+                        ? 'inline-block text-body bg-primary-light text-primary-text px-1.5 rounded border-b-2 border-primary'
+                        : 'text-body text-ink-faint'
+                    }
+                  >
+                    {'_'.repeat(blankLen)}
+                  </span>
+                )
+              })
+            })()
+          )}
+        </div>
 
+        {isSentenceComplete && (
+          <>
             {/* SAC-103 Part 6: baked into the content, shown automatically
                 the instant the sentence is complete — no checkbox, no
                 tap-to-fetch. Free to always show since it costs nothing
@@ -261,7 +362,7 @@ export default function SentenceBuilderView({ onBack }) {
             >
               {isLastSentence ? "🎉 You've finished this tier!" : 'Next sentence →'}
             </button>
-          </div>
+          </>
         )}
       </div>
     </div>
