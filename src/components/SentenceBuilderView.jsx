@@ -1,67 +1,18 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { apiFetch } from '../api'
 import { applySpanishVoice, SPEAK_START_DELAY_MS } from '../speechUtils'
 import { shuffle, playCorrectBeep, playWrongBeep } from '../quizUtils'
 import ClickableSpanishText from './ClickableSpanishText'
-import { ExplanationPanel, ExplanationLoading } from './ExplanationIcon'
 import { useClickOutside } from '../useClickOutside'
-import { SENTENCE_BUILDER_CONTENT, SENTENCE_BUILDER_DIFFICULTIES, CATEGORY_ORDER } from '../data/sentenceBuilderContent'
+import { SENTENCE_BUILDER_CONTENT, SENTENCE_BUILDER_DIFFICULTIES } from '../data/sentenceBuilderContent'
 
-// SAC-097 Part 3.4: brief confirmation before auto-advancing to the next
-// slot — deliberately NOT VocabularyMatching's own persistent "✓ Correct!
-// + Save + Next" pattern, since the round's own spec explicitly asks for
-// "briefly confirm, then advance" (an auto-timed transition), not a
-// manual per-slot Next button. The tap/option/audio-feedback mechanism
-// itself (shuffle, tones, disabled-while-locked) is still reused exactly
-// from VocabularyMatching.jsx/quizUtils.js — only the post-correct-answer
-// flow differs, because this round's spec explicitly asks for that
-// difference.
+// SAC-103 Part 3: no auto-dismiss timer for wrong-answer feedback — it was
+// disappearing too fast for the hint to actually be read (SAC-097's
+// original HINT_DISPLAY_MS). It now stays up until the user dismisses it
+// explicitly (an X control) or taps another option to retry (selecting any
+// option — right or wrong — replaces whatever feedback is currently
+// showing, so a retry tap always clears a stale wrong-answer message on
+// its own, no separate "clear on retry" code path needed).
 const CORRECT_ADVANCE_MS = 900
-// Longer than VocabularyMatching's 1200ms "Try again!" — a real per-slot
-// grammar hint needs more reading time than a generic retry prompt.
-const HINT_DISPLAY_MS = 2200
-
-function sortSlots(slots) {
-  return [...slots].sort((a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category))
-}
-
-// Word-boundary-aware highlight — NOT a raw substring search. A live check
-// while authoring this round's content caught a real bug a substring
-// approach would have shipped silently: "to" (a preposition slot's
-// englishWord) matched inside "tonight" in one sentence, and matched TWO
-// separate real words ("want to go to the beach") in another. Tokenizing
-// both sides and matching whole word(s) avoids both failure modes.
-function renderHighlightedEnglish(english, englishWord) {
-  const stripPunct = (w) => w.replace(/[.,!?]+$/, '')
-  const tokens = english.split(' ')
-  const wordTokens = englishWord.split(' ')
-  let matchStart = -1
-  for (let i = 0; i <= tokens.length - wordTokens.length; i++) {
-    let ok = true
-    for (let j = 0; j < wordTokens.length; j++) {
-      if (stripPunct(tokens[i + j]) !== wordTokens[j]) {
-        ok = false
-        break
-      }
-    }
-    if (ok) {
-      matchStart = i
-      break
-    }
-  }
-  if (matchStart === -1) return english
-
-  const before = tokens.slice(0, matchStart).join(' ')
-  const matched = tokens.slice(matchStart, matchStart + wordTokens.length).join(' ')
-  const after = tokens.slice(matchStart + wordTokens.length).join(' ')
-  return (
-    <>
-      {before ? before + ' ' : ''}
-      <span className="font-bold text-primary-text bg-primary-light px-1 rounded-control">{matched}</span>
-      {after ? ' ' + after : ''}
-    </>
-  )
-}
 
 export default function SentenceBuilderView({ onBack }) {
   const [difficulty, setDifficulty] = useState(null)
@@ -70,15 +21,7 @@ export default function SentenceBuilderView({ onBack }) {
   const [feedback, setFeedback] = useState(null) // { correct: boolean } | null
   const [locked, setLocked] = useState(false)
   const [activeToken, setActiveToken] = useState(null)
-  // null (not requested) | 'loading' | 'failed' | the explanation object —
-  // same shape ExplanationPanel/ExplanationLoading already render
-  // elsewhere, same on-demand tap-to-fetch pattern TranslationView used
-  // before SAC-100 (a persistent checkbox doesn't fit here — there's only
-  // ever one assembled sentence to explain at a time, not a multi-line
-  // selector needing navigation-synced fetching).
-  const [grammarState, setGrammarState] = useState(null)
 
-  const retryTimeoutRef = useRef(null)
   const advanceTimeoutRef = useRef(null)
   const speakTokenRef = useRef(0)
   const assembledRef = useRef(null)
@@ -87,7 +30,6 @@ export default function SentenceBuilderView({ onBack }) {
 
   useEffect(() => {
     return () => {
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
       if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current)
     }
   }, [])
@@ -97,42 +39,31 @@ export default function SentenceBuilderView({ onBack }) {
     [difficulty]
   )
   const currentSentence = sentences[sentenceIdx] || null
-  const sortedSlots = useMemo(() => (currentSentence ? sortSlots(currentSentence.slots) : []), [currentSentence])
-  const isSentenceComplete = currentSentence ? slotIdx >= sortedSlots.length : false
-  const currentSlot = !isSentenceComplete ? sortedSlots[slotIdx] : null
+
+  // SAC-103 Part 1: quizzing walks the slot-type parts in ARRAY ORDER,
+  // which is now, by construction, the actual Spanish sentence order —
+  // there's no separate category-priority sort anymore (SAC-097's own
+  // sort could genuinely diverge from real word order, e.g. quizzing a
+  // verb before a noun that actually appears earlier in the sentence).
+  const slotParts = useMemo(() => (currentSentence ? currentSentence.parts.filter((p) => p.type === 'slot') : []), [currentSentence])
+  const isSentenceComplete = currentSentence ? slotIdx >= slotParts.length : false
+  const currentSlot = !isSentenceComplete ? slotParts[slotIdx] : null
 
   const options = useMemo(() => (currentSlot ? shuffle(currentSlot.options) : []), [currentSlot])
 
-  // SAC-097 Part 1: constructed from each slot's sentencePosition plus the
-  // sentence's own fixed/unslotted words, per the round's explicit spec —
-  // not just displaying `spanish` directly, even though the two are
-  // guaranteed identical for this Phase 1 content (verified word-by-word
-  // while authoring it). The dev-only warning below is a real safety net,
-  // not decoration: it would have caught the comma-attached-to-a-slotted-
-  // word authoring bug found and fixed while building this round's content
-  // (a slot's correctAnswer needs to exactly equal the tokenized word at
-  // its position, or assembly silently produces the wrong sentence).
+  // SAC-103 Part 1: assembly is now just joining every part's fixed text
+  // or slot correctAnswer in array order — no separate sentencePosition
+  // bookkeeping needed, since array order already IS Spanish order.
   const assembledSpanish = useMemo(() => {
     if (!currentSentence) return ''
-    const spanishWords = currentSentence.spanish.split(' ')
-    const bySlotPosition = {}
-    currentSentence.slots.forEach((slot) => {
-      bySlotPosition[slot.sentencePosition] = slot.correctAnswer
-    })
-    const assembled = spanishWords.map((w, i) => bySlotPosition[i] ?? w).join(' ')
-    if (assembled !== currentSentence.spanish) {
-      console.warn(`[SentenceBuilder] Assembly mismatch for "${currentSentence.id}": "${assembled}" vs "${currentSentence.spanish}"`)
-    }
-    return assembled
+    return currentSentence.parts.map((p) => (p.type === 'fixed' ? p.text : p.correctAnswer)).join(' ')
   }, [currentSentence])
 
   const resetForNewSentence = () => {
     setSlotIdx(0)
     setFeedback(null)
     setLocked(false)
-    setGrammarState(null)
     setActiveToken(null)
-    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
     if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current)
   }
 
@@ -150,7 +81,6 @@ export default function SentenceBuilderView({ onBack }) {
 
   const selectOption = (opt) => {
     if (locked) return
-    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
 
     const isCorrect = opt === currentSlot.correctAnswer
     if (isCorrect) {
@@ -164,10 +94,13 @@ export default function SentenceBuilderView({ onBack }) {
       }, CORRECT_ADVANCE_MS)
     } else {
       playWrongBeep()
+      // Replaces any existing feedback outright — a retry tap (right or
+      // wrong) always clears a stale wrong-answer message on its own.
       setFeedback({ correct: false })
-      retryTimeoutRef.current = setTimeout(() => setFeedback(null), HINT_DISPLAY_MS)
     }
   }
+
+  const handleDismissHint = () => setFeedback(null)
 
   const handleNextSentence = () => {
     setSentenceIdx((i) => i + 1)
@@ -189,25 +122,6 @@ export default function SentenceBuilderView({ onBack }) {
     }
   }
 
-  const fetchGrammar = async () => {
-    if (!assembledSpanish.trim()) return
-    setGrammarState('loading')
-    try {
-      const response = await apiFetch('/api/generate-sentence-explanations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sentences: [assembledSpanish], difficulty: currentSentence.difficulty }),
-      })
-      if (!response.ok) throw new Error(`status ${response.status}`)
-      const data = await response.json()
-      const explanation = (data.explanations || []).find((exp) => exp.sentenceIndex === 0)
-      setGrammarState(explanation || 'failed')
-    } catch (err) {
-      console.error('Could not generate grammar explanation:', err)
-      setGrammarState('failed')
-    }
-  }
-
   // ---- Difficulty selection screen ----
   if (!difficulty) {
     return (
@@ -220,7 +134,7 @@ export default function SentenceBuilderView({ onBack }) {
         </button>
         <p className="text-heading-1 text-ink mb-1">🧩 Build a Sentence</p>
         <p className="text-small text-ink-muted mb-5">
-          Pick a word for each highlighted slot, then watch the full Spanish sentence come together.
+          Pick a word for each blank in Spanish sentence order, then watch the full sentence come together.
         </p>
         <div className="grid gap-3">
           {SENTENCE_BUILDER_DIFFICULTIES.map((level) => (
@@ -237,8 +151,6 @@ export default function SentenceBuilderView({ onBack }) {
     )
   }
 
-  // ---- No sentences for this tier (shouldn't happen with real content,
-  // but a real, reachable state if content is ever trimmed) ----
   if (sentences.length === 0) {
     return (
       <div>
@@ -268,24 +180,33 @@ export default function SentenceBuilderView({ onBack }) {
         Sentence {sentenceIdx + 1} of {sentences.length}
       </p>
 
-      {/* SAC-097 Part 3.2: the English sentence stays visible throughout —
-          only the highlighted word/phrase changes as slotIdx advances,
-          via renderHighlightedEnglish. */}
       <div className="mb-5 bg-surface rounded-card shadow-sm border border-border p-6">
-        <p className="text-heading-2 text-ink leading-relaxed">
-          {currentSentence && renderHighlightedEnglish(currentSentence.english, currentSlot ? currentSlot.englishWord : '')}
-        </p>
+        {/* SAC-103 Part 2: the English sentence is now static reference
+            text — no moving/jumping highlight. A plain caption below it
+            says which word is currently being quizzed instead. */}
+        <p className="text-heading-2 text-ink leading-relaxed">{currentSentence.english}</p>
 
         {!isSentenceComplete ? (
           <>
+            <p className="text-small text-ink-muted mt-2">
+              Word {slotIdx + 1} of {slotParts.length} — the word for &ldquo;{currentSlot.englishWord}&rdquo;
+            </p>
+
             {feedback?.correct && (
               <div className="mt-4 bg-success-light rounded-control px-4 py-3 text-body font-semibold text-success text-center">
                 ✓ Correct!
               </div>
             )}
             {feedback && !feedback.correct && (
-              <div className="mt-4 bg-danger-light rounded-control px-4 py-3 text-small text-danger">
-                {currentSlot.hint}
+              <div className="mt-4 bg-danger-light rounded-control px-4 py-3 text-small text-danger flex items-start gap-2">
+                <p className="flex-1">{currentSlot.hint}</p>
+                <button
+                  onClick={handleDismissHint}
+                  aria-label="Dismiss"
+                  className="shrink-0 min-w-[24px] min-h-[24px] flex items-center justify-center text-danger hover:text-danger/70 transition"
+                >
+                  ✕
+                </button>
               </div>
             )}
 
@@ -323,17 +244,14 @@ export default function SentenceBuilderView({ onBack }) {
               </button>
             </div>
 
-            <div className="mt-3">
-              {grammarState === null && (
-                <button onClick={fetchGrammar} className="text-small text-ink-muted hover:text-ink transition">
-                  💡 Grammar
-                </button>
-              )}
-              {grammarState === 'loading' && <ExplanationLoading />}
-              {grammarState === 'failed' && <ExplanationLoading failed />}
-              {grammarState && grammarState !== 'loading' && grammarState !== 'failed' && (
-                <ExplanationPanel explanation={grammarState} />
-              )}
+            {/* SAC-103 Part 6: baked into the content, shown automatically
+                the instant the sentence is complete — no checkbox, no
+                tap-to-fetch. Free to always show since it costs nothing
+                extra at runtime, unlike Translate/Listening's live-fetched
+                Grammar features. */}
+            <div className="mt-3 bg-success-light border border-border rounded-control px-3 py-2 text-small text-ink">
+              <span className="mr-1">💡</span>
+              {currentSentence.grammarExplanation}
             </div>
 
             <button

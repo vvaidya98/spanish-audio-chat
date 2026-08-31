@@ -1,6 +1,6 @@
 {
   "name": "conversation-amigo",
-  "version": "1.2x",
+  "version": "1.2y",
   "type": "module",
   "description": "Beginner Spanish conversation practice with audio voice chat powered by Claude",
   "main": "server.js",
@@ -12,7 +12,8 @@
     "build": "cross-env NODE_ENV=production vite build",
     "preview": "vite preview",
     "backend": "node server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "verify-content": "node scripts/verifySentenceBuilderContent.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.24.0",

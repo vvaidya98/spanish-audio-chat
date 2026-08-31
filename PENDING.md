@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-30 (SAC-097 Phase 1 shipped as v1.2x)
+## Last updated: 2026-08-31 (SAC-103 shipped as v1.2y)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -667,6 +667,19 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - Two real content bugs caught by a purpose-built verification script (not manual review): a comma attached to a slotted word breaking positional matching, and a naive "to" substring search matching zero/one/two wrong places across three sentences (including inside "tonight"). Both fixed; the real highlight logic is word-boundary-aware from the start.
 - **Explicitly out of scope for Phase 1** (per the round's own instruction — do not build ahead of need): typed-answer mode, user-submitted custom sentences, spaced repetition tracking. All planned as future SACs, not yet numbered.
 - Version bumped to v1.2x.
+
+### Shipped in v1.2y — SAC-103 (Sentence Builder Spanish-Order Overhaul, New Categories, 45 Sentences, Shared Plain-Language Grammar Style)
+- **New data model**: `parts[]` array order IS Spanish sentence order now — no more separate sentencePosition field, no more category-priority quiz order that could diverge from actual word order.
+- **Static English + caption** replaces the moving highlight; supports multi-word englishWord values cleanly.
+- **Wrong-answer feedback no longer auto-dismisses** — stays until explicitly dismissed (X button) or cleared by a retry tap.
+- **Two new categories**: object-pronoun (me/te/le/nos/les across reflexive/direct/indirect/gustar-type roles) and adverb, with same-type distractor rules.
+- **Expanded to 45 sentences** (15 per tier, up from 18 total), genuine verb variety (~30 distinct verbs), verified via a real committed script (`npm run verify-content`).
+- **Grammar now baked into content**, shown automatically on assembly — no live fetch, no tap gating.
+- **Shared plain-language grammar style** ("plain language first, jargon in parens after") applied to the Translate/Listening shared endpoint and Sentence Builder's baked-in content.
+- **Two real discrepancies found and flagged, not silently worked around**: the prompt's referenced "Grammar Q&A tutor (SAC-102)" does not exist anywhere in this codebase — not built this round, flagged instead. The "automated verification script" v1.2x's CLAUDE.md claimed existed was never actually committed to the repo — it now genuinely is (`scripts/verifySentenceBuilderContent.mjs`).
+- Version bumped to v1.2y.
+
+**Open question for Vinay — not built, needs clarification:** SAC-103's prompt referenced "the Grammar Q&A tutor (SAC-102)" as an existing feature to apply a style update to. A full search of this codebase (components, server.js, CLAUDE.md, PENDING.md) found no such feature anywhere — no chat/ask-a-grammar-question surface has ever been built here under any name. Possibilities: (a) it was planned/discussed elsewhere (a different session, a doc, verbally) but never actually reached this repo, (b) the SAC-102 numbering was assigned to it in error, (c) it's a genuinely new feature this app doesn't have yet and SAC-103 assumed it already existed. Not built this round (would have been a large, unrequested scope addition to a content-and-style round) — flagging here so a future round can either point to where "SAC-102" actually lives, or define it as new work if that's what's wanted.
 
 **Next (after the above is confirmed and shipped):**
 1. SAC-017: Connect Netlify + Railway to GitHub for auto-deploy-on-push (currently both are manual CLI deploys)
