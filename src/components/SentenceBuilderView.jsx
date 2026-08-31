@@ -128,8 +128,28 @@ export default function SentenceBuilderView({ onBack }) {
 
   const handleDismissHint = () => setFeedback(null)
 
+  // SAC-105 Part 3: clears the CURRENT sentence's progress (answered
+  // slots, wrong-answer feedback) without touching sentenceIdx at all —
+  // deliberately the same reset logic handleSelectDifficulty/
+  // handlePreviousSentence/handleNextSentence already use when landing on
+  // a sentence fresh, just without the sentence-index change that comes
+  // with those.
+  const handleRestart = () => resetForNewSentence()
+
+  // SAC-105 Part 4: Previous/Next are now always active regardless of
+  // completion state (previously "Next sentence" only existed once a
+  // sentence was fully solved) — boundary-clamped the same way
+  // WordFlashcards.jsx's goPrev/goNext already do in this app (Math.max/
+  // Math.min plus a matching `disabled` check on the button), not a new
+  // pattern invented for this feature. Both always call
+  // resetForNewSentence() so a destination sentence never carries over
+  // partial progress from an earlier visit.
+  const handlePreviousSentence = () => {
+    setSentenceIdx((i) => Math.max(0, i - 1))
+    resetForNewSentence()
+  }
   const handleNextSentence = () => {
-    setSentenceIdx((i) => i + 1)
+    setSentenceIdx((i) => Math.min(sentences.length - 1, i + 1))
     resetForNewSentence()
   }
 
@@ -205,6 +225,36 @@ export default function SentenceBuilderView({ onBack }) {
       <p className="text-small text-ink-muted mb-1">
         Sentence {sentenceIdx + 1} of {sentences.length}
       </p>
+
+      {/* SAC-105 Parts 3-4: persistent controls, always active regardless
+          of whether the current sentence has been completed — Previous/
+          Next are boundary-clamped the same way WordFlashcards.jsx's own
+          Prev/Next already are elsewhere in this app (Math.max/Math.min
+          plus a matching `disabled` check), and Restart clears only the
+          current sentence's progress without navigating anywhere. */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={handlePreviousSentence}
+          disabled={sentenceIdx === 0}
+          className="flex-1 min-h-[40px] rounded-control bg-secondary-light text-secondary-text text-small font-semibold hover:bg-secondary-light/70 transition disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          ← Previous
+        </button>
+        <button
+          onClick={handleRestart}
+          title="Restart this sentence"
+          className="min-h-[40px] px-4 rounded-control bg-surface border border-border text-ink-muted text-small font-semibold hover:bg-primary-light hover:text-primary-text transition"
+        >
+          🔄 Restart
+        </button>
+        <button
+          onClick={handleNextSentence}
+          disabled={isLastSentence}
+          className="flex-1 min-h-[40px] rounded-control bg-primary text-white text-small font-semibold hover:bg-primary-hover transition disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Next →
+        </button>
+      </div>
 
       <div className="mb-5 bg-surface rounded-card shadow-sm border border-border p-6">
         {/* SAC-104 Part 1: the English sentence highlights whichever word/
@@ -349,19 +399,27 @@ export default function SentenceBuilderView({ onBack }) {
                 the instant the sentence is complete — no checkbox, no
                 tap-to-fetch. Free to always show since it costs nothing
                 extra at runtime, unlike Translate/Listening's live-fetched
-                Grammar features. */}
+                Grammar features. SAC-105 Part 2: each entry renders as its
+                own bold-Spanish-term line rather than one flowing inline
+                paragraph — see sentenceBuilderContent.js's own header
+                comment for why this keeps the rich per-word explanatory
+                text (verb endings, agreement reasoning, etc.) instead of
+                collapsing it to a bare "word (gloss)" gloss the way
+                Translate/Listening's terser shared format now does. */}
             <div className="mt-3 bg-success-light border border-border rounded-control px-3 py-2 text-small text-ink">
-              <span className="mr-1">💡</span>
-              {currentSentence.grammarExplanation}
+              <p className="mb-1 font-semibold text-success">💡 Grammar</p>
+              {currentSentence.grammarExplanation.map((entry, i) => (
+                <p key={i} className="mb-1 last:mb-0">
+                  <span className="font-bold">{entry.spanish}</span> {entry.note}
+                </p>
+              ))}
             </div>
 
-            <button
-              onClick={handleNextSentence}
-              disabled={isLastSentence}
-              className="w-full min-h-[44px] mt-4 rounded-control bg-primary text-white font-semibold hover:bg-primary-hover transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLastSentence ? "🎉 You've finished this tier!" : 'Next sentence →'}
-            </button>
+            {isLastSentence && (
+              <p className="text-center text-small font-semibold text-primary-text mt-4">
+                🎉 You've finished this tier!
+              </p>
+            )}
           </>
         )}
       </div>

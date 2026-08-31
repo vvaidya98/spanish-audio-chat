@@ -1,5 +1,5 @@
 # PENDING.md — Conversation Amigo (formerly Spanish Audio Chat)
-## Last updated: 2026-08-31 (SAC-104 shipped as v1.2z)
+## Last updated: 2026-08-31 (SAC-105 shipped as v1.3a)
 ## Project prefix: SAC (Spanish Audio Chat)
 
 *Read this file at the start of every Claude Code session, alongside CLAUDE.md. Items here are either unresolved decisions or tasks not yet started. Check off items as they're resolved and note the decision made.*
@@ -680,6 +680,14 @@ Once SAC-013 ships with IndexedDB: cache generated stories after first generatio
 - Version bumped to v1.2y.
 
 **Open question for Vinay — not built, needs clarification:** SAC-103's prompt referenced "the Grammar Q&A tutor (SAC-102)" as an existing feature to apply a style update to. A full search of this codebase (components, server.js, CLAUDE.md, PENDING.md) found no such feature anywhere — no chat/ask-a-grammar-question surface has ever been built here under any name. Possibilities: (a) it was planned/discussed elsewhere (a different session, a doc, verbally) but never actually reached this repo, (b) the SAC-102 numbering was assigned to it in error, (c) it's a genuinely new feature this app doesn't have yet and SAC-103 assumed it already existed. Not built this round (would have been a large, unrequested scope addition to a content-and-style round) — flagging here so a future round can either point to where "SAC-102" actually lives, or define it as new work if that's what's wanted.
+
+### Shipped in v1.3a — SAC-105 (Gerund Category, Bold-Per-Line Grammar Format, Restart Control, Persistent Sentence Navigation)
+- **New 'gerund' category** covers estar + -ando/-iendo progressive constructions, previously falling through as fixed text — mixed distractors (other gerunds, the infinitive, a conjugated form) per the round's own design. Audited all 45 sentences for this pattern plus haber + past participle: found and converted exactly 2 gerund instances (int-4's "estudiando", adv-6's "lloviendo,"); found zero present-perfect constructions anywhere in the content, so no 'participle' category was added — nothing real existed to convert it against.
+- **Grammar box reformatted**: `grammarExplanation` changed from one flowing prose string to an array of `{spanish, note}` entries, rendered bold-per-line. Applied consistently across all three surfaces sharing this format (Sentence Builder's baked-in explanations, Translate's Grammar box, Listening's Grammar box) — the shared `generateSentenceExplanations` backend prompt now returns a structured `wordBreakdown` array instead of one pre-formatted `inlinePhrase` string, avoiding client-side parsing of free text entirely (the same "don't runtime-parse generated content" principle SAC-104 already applied elsewhere). Sentence Builder's own array deliberately keeps its richer per-word grammatical notes rather than collapsing to Translate/Listening's terser bare-gloss style — a disclosed adaptation, not a literal copy of the round's own example format, since collapsing it would have discarded real pedagogical content.
+- **Restart control**: clears the current sentence's answered slots without navigating away — reuses the same reset logic already used when landing on a sentence fresh.
+- **Persistent Previous/Next navigation**: always active regardless of completion state, boundary-clamped the same way `WordFlashcards.jsx`'s own Prev/Next already are elsewhere in this app. Replaces the old completion-only "Next sentence" button entirely (no duplicate navigation controls).
+- Verification script extended: validates the new `grammarExplanation` array shape, adds a gerund-after-verb heuristic warning, proven against a planted violation before being trusted on the real re-authored content (0 errors, 0 warnings).
+- Version bumped to v1.3a.
 
 ### Shipped in v1.2z — SAC-104 (Synced English Highlight, Progressive Sentence Build-Up, Infinitive/Article Categories, Re-Authored Content)
 - **`englishTokens`/`englishSpan` data model** replaces the old `english`/`englishWord` strings — each slot now carries an authored, unambiguous word-index range into a pre-tokenized English sentence, driving the highlight with zero runtime substring search (avoiding a repeat of SAC-097's original "to"-matching bug).

@@ -38,20 +38,32 @@ export function ExplanationIcon({ explanation, isOpen, onClick, className = '' }
 // "'le trae el menú' — to-her brings the menu") was replaced with one line
 // that weaves the literal meaning inline as parentheticals directly after
 // each Spanish word/word-group (e.g. "Me (myself) muero (I die)..."),
-// matching server.js's `generateSentenceExplanations` prompt, which now
-// asks Claude to produce this format directly rather than post-processing
-// its output here. This component is shared with ListeningStoryView.jsx's
-// own Grammar block/Transcript ⓘ icons (same endpoint, same shape), so the
-// format change applies there identically too.
+// matching server.js's `generateSentenceExplanations` prompt.
+// SAC-105 Part 2: that one-line inline format is now a structured
+// `wordBreakdown` array (`[{spanish, english}, ...]`) instead of a single
+// pre-formatted string — server.js's prompt asks Claude for the array
+// directly, so no client-side parenthetical-parsing of free text is
+// needed here at all (the same "don't runtime-parse generated text"
+// lesson SAC-104 already applied to Sentence Builder's highlight, applied
+// here to the same underlying problem). Rendered as one bold Spanish
+// term + its gloss per line, rather than one run-together paragraph. The
+// "In English:"/"Pattern:" lines below are unchanged in structure. This
+// component is shared with ListeningStoryView.jsx's own Grammar block/
+// Transcript ⓘ icons (same endpoint, same shape), so the format change
+// applies there identically too.
 export function ExplanationPanel({ explanation }) {
   if (!explanation) return null
 
   return (
     <div className="mt-1 bg-success-light border border-border rounded-control px-3 py-2 text-small text-ink">
-      <p className="mb-1.5">
+      <div className="mb-1.5">
         <span className="mr-1">💡</span>
-        <span className="font-semibold text-success">{explanation.inlinePhrase}</span>
-      </p>
+        {explanation.wordBreakdown?.map((entry, i) => (
+          <p key={i} className="font-semibold text-success">
+            {entry.spanish} <span className="font-normal text-ink">({entry.english})</span>
+          </p>
+        ))}
+      </div>
       <p className="mb-1.5">
         <span className="font-semibold">In English: </span>
         {explanation.englishSyntax}

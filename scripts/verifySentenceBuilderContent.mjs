@@ -15,6 +15,15 @@
 // heuristic and not every possible false positive is worth failing the
 // build over.
 //
+// SAC-105 extended it again: `grammarExplanation` changed from one flowing
+// string per sentence to an array of `{ spanish, note }` entries (Part 2's
+// bold-per-line format) — the coverage and jargon checks below now walk
+// every entry's `note` text instead of one combined string. Also added a
+// 'gerund' category and a matching heuristic (a fixed part ending in a
+// typical gerund ending, -ando/-iendo, sitting immediately after a slot of
+// category 'verb') for the same class of "helper verb + secondary verb
+// form left unquizzed" gap the infinitive heuristic already covers.
+//
 // Checks:
 //   1. Structural correctness: every slot's correctAnswer is present in
 //      its own options array; the assembled sentence (joining parts in
@@ -23,20 +32,22 @@
 //      0 <= start <= end < englishTokens.length); fixed parts never carry
 //      an englishSpan (they're never highlighted).
 //   2. Grammar-explanation word coverage: every fixed `text` and every
-//      slot's `correctAnswer` must be referenced somewhere in that
-//      sentence's grammarExplanation (case-insensitive, ignoring a
+//      slot's `correctAnswer` must be referenced somewhere across the
+//      sentence's grammarExplanation array (case-insensitive, ignoring a
 //      trailing comma) — catches an explanation that skips a word Part 6
-//      requires covering.
+//      (SAC-103) requires covering.
 //   3. Plain-language-first style: any occurrence of a known grammar-
-//      jargon term in an explanation or hint must be wrapped in
-//      parentheses — a bare, unparenthesized jargon term is flagged as a
-//      likely "jargon first" violation of the shared style rule.
-//   4. SAC-104 heuristic rule-violation flags (warnings): a fixed part
-//      whose text is a common article word, or a fixed part ending in a
-//      typical infinitive ending (-ar/-er/-ir) sitting immediately after a
-//      slot of category 'verb' — both signal a word that plausibly should
-//      have been converted to a real quiz slot under this round's clearer
-//      authoring rule.
+//      jargon term in a grammarExplanation entry's `note` or a slot's
+//      `hint` must be wrapped in parentheses — a bare, unparenthesized
+//      jargon term is flagged as a likely "jargon first" violation of the
+//      shared style rule.
+//   4. Heuristic rule-violation flags (warnings): a fixed part whose text
+//      is a common article word, a fixed part ending in a typical
+//      infinitive ending (-ar/-er/-ir) directly after a verb slot, or a
+//      fixed part ending in a typical gerund ending (-ando/-iendo)
+//      directly after a verb slot — all three signal a word that
+//      plausibly should have been converted to a real quiz slot under the
+//      clearer authoring rule (SAC-104 Part 4).
 //
 // Run: node scripts/verifySentenceBuilderContent.mjs
 
@@ -168,6 +179,12 @@ for (const sentence of SENTENCE_BUILDER_CONTENT) {
           warn(id, `fixed part "${part.text}" ends in a typical infinitive ending and directly follows a verb slot — review whether this should be an 'infinitive' slot`)
         }
       }
+      if (/^[a-zà-ÿ]*(ando|iendo),?$/i.test(part.text)) {
+        const prevPart = parts[partIdx - 1]
+        if (prevPart && prevPart.type === 'slot' && prevPart.category === 'verb') {
+          warn(id, `fixed part "${part.text}" ends in a typical gerund ending and directly follows a verb slot — review whether this should be a 'gerund' slot`)
+        }
+      }
     } else if (part.type === 'slot') {
       if (!CATEGORIES.includes(part.category)) {
         report(id, `slot has unknown category "${part.category}"`)
@@ -233,14 +250,25 @@ for (const sentence of SENTENCE_BUILDER_CONTENT) {
     report(id, `assembled sentence is empty`)
   }
 
-  if (!grammarExplanation || !grammarExplanation.trim()) {
-    report(id, `missing grammarExplanation`)
+  if (!Array.isArray(grammarExplanation) || grammarExplanation.length === 0) {
+    report(id, `missing or empty grammarExplanation[] (expected an array of { spanish, note } entries, SAC-105 Part 2)`)
     continue
   }
 
+  const explanationEntryTexts = []
+  for (const entry of grammarExplanation) {
+    if (!entry.spanish || !entry.spanish.trim()) {
+      report(id, `a grammarExplanation entry has empty "spanish"`)
+    }
+    if (!entry.note || !entry.note.trim()) {
+      report(id, `grammarExplanation entry "${entry.spanish}" has empty "note"`)
+    }
+    explanationEntryTexts.push(`${entry.spanish || ''} ${entry.note || ''}`)
+  }
+  const explanationLower = explanationEntryTexts.join(' ').toLowerCase()
+
   // Coverage check: every fixed/slot word should be referenced somewhere
-  // in the explanation (case-insensitive substring match).
-  const explanationLower = grammarExplanation.toLowerCase()
+  // across the grammarExplanation array (case-insensitive substring match).
   for (const word of allWordsForCoverage) {
     if (!word) continue
     if (!explanationLower.includes(word.toLowerCase())) {
@@ -248,10 +276,14 @@ for (const sentence of SENTENCE_BUILDER_CONTENT) {
     }
   }
 
-  // Style check: no bare (unparenthesized) jargon.
-  const jargonViolations = findJargonViolations(grammarExplanation)
-  if (jargonViolations.length > 0) {
-    report(id, `grammarExplanation uses jargon term(s) without parentheses: ${jargonViolations.join(', ')}`)
+  // Style check: no bare (unparenthesized) jargon, checked per-entry so a
+  // violation's own entry is identifiable in the output.
+  for (const entry of grammarExplanation) {
+    if (!entry.note) continue
+    const jargonViolations = findJargonViolations(entry.note)
+    if (jargonViolations.length > 0) {
+      report(id, `grammarExplanation entry "${entry.spanish}" uses jargon term(s) without parentheses: ${jargonViolations.join(', ')}`)
+    }
   }
 }
 
@@ -278,7 +310,7 @@ const categoryCounts = SENTENCE_BUILDER_CONTENT.reduce((acc, s) => {
   return acc
 }, {})
 console.log('Slot counts by category:', JSON.stringify(categoryCounts))
-for (const newCategory of ['article', 'infinitive']) {
+for (const newCategory of ['article', 'infinitive', 'gerund']) {
   if (!categoryCounts[newCategory]) {
     report(newCategory, `no slots of this new category appear anywhere in the content`)
   }

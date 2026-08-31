@@ -39,41 +39,66 @@
 // wrong alternative in that exact context; a word stays fixed only when
 // there's no meaningful alternative to weigh (conjunctions, negation,
 // prepositions with only one sensible choice). Scoped explicitly to what
-// the round named — articles (new 'article' category), infinitives
-// directly following a modal/helper verb (new 'infinitive' category), and
-// prepositions with a genuine fork (por/para, personal "a" — already
-// handled pre-SAC-104 via the existing 'preposition' category, e.g.
-// int-10's para/por fork). Deliberately NOT expanded to other word
-// classes this round (some conjugated "trigger" verbs like "Es"/"Dudo"/
-// "Siento"/"Espero"/"Prefiero", the fixed idiom "tienes razón", certain
-// adjectives/possessives/nouns like "rojo"/"mis"/"mesa") even where the
-// same general rule would arguably support converting them too — that
-// broader an expansion was never named in this round's explicit scope,
-// and converting only what was named keeps this already-large re-
-// authoring pass bounded. Flagged in CLAUDE.md as a disclosed scope
-// boundary, not a silent gap.
+// the round named — articles ('article' category), infinitives directly
+// following a modal/helper verb ('infinitive' category), and prepositions
+// with a genuine fork (por/para, personal "a" — already handled via the
+// existing 'preposition' category). Deliberately NOT expanded to other
+// word classes that round (some conjugated "trigger" verbs like "Es"/
+// "Dudo"/"Siento"/"Espero"/"Prefiero", the fixed idiom "tienes razón",
+// certain adjectives/possessives/nouns like "rojo"/"mis"/"mesa") even
+// where the same general rule would arguably support converting them too
+// — that broader an expansion was never named in SAC-104's explicit
+// scope. Flagged in CLAUDE.md as a disclosed scope boundary, not a silent
+// gap — still true after this round, unchanged.
+//
+// SAC-105 Part 1: 'gerund' added as a category, covering the present
+// participle (-ando/-iendo) in progressive constructions (estar + gerund)
+// — the second instance of a general pattern this round names explicitly:
+// any secondary verb form following a helper/auxiliary verb is a real
+// decision point and deserves its own slot, the same reasoning SAC-104
+// applied to modal+infinitive. Audited all 45 sentences for both this
+// estar+gerund pattern and haber+past-participle (present perfect,
+// e.g. "he estudiado") — found and converted exactly 2 instances of the
+// former (int-4's "estudiando", adv-6's "lloviendo,", both previously
+// fixed text), and confirmed ZERO instances of the latter anywhere in the
+// current 45-sentence set (no sentence here uses present perfect at all)
+// — so no 'participle' category was added this round; there was nothing
+// real to convert it against, and inventing a haber+participle sentence
+// just to justify an unused category would have been fabricated scope
+// beyond "audit and convert what's found."
 //
 // Every sentence's Spanish grammar (conjugation, gender/number agreement,
 // adjective placement, object-pronoun role, article gender/number,
-// infinitive-after-modal correctness) was manually re-verified word-by-
-// word after re-authoring — Colombian Spanish standard (tú not vos;
-// "carro" not "coche"). Disclosed rather than assumed: this is AI-
-// authored Spanish content, verified carefully by direct review, but
-// (like every other generated Spanish in this app) would still benefit
-// from a native-speaker spot check. Double-object-pronoun constructions
-// (se lo, se la, etc.) remain deliberately avoided, per SAC-103.
+// infinitive-after-modal and gerund-after-estar correctness) was manually
+// re-verified word-by-word after each re-authoring pass — Colombian
+// Spanish standard (tú not vos; "carro" not "coche"). Disclosed rather
+// than assumed: this is AI-authored Spanish content, verified carefully
+// by direct review, but (like every other generated Spanish in this app)
+// would still benefit from a native-speaker spot check. Double-object-
+// pronoun constructions (se lo, se la, etc.) remain deliberately avoided,
+// per SAC-103.
 //
-// `grammarExplanation` is baked in per SAC-103 Part 6 — no live API call,
-// shown automatically once a sentence is assembled. It follows the shared
-// style rule (plain language first, technical term in parentheses after,
-// jargon never appears unparenthesized) and is written to mention every
-// part of the sentence, fixed words included — both requirements checked
-// mechanically by scripts/verifySentenceBuilderContent.mjs, not just by
-// eye. SAC-104 added 'infinitive' to the script's jargon-term list (the
-// existing beg-6/beg-7 explanations already used the established
-// plain-language-first-then-parens pattern for it: "an infinitive, the
-// plain unconjugated form" — extended consistently to every new
-// infinitive slot's hint/explanation this round).
+// SAC-105 Part 2: `grammarExplanation` changed from one flowing prose
+// string per sentence into an ARRAY of `{ spanish, note }` entries, one
+// per word/phrase in Spanish-sentence order — rendered as a bold Spanish
+// term followed by its own explanation, one entry per line, rather than
+// one long inline paragraph. This is a deliberate, disclosed adaptation
+// of the round's own literal example (a bare "**word** (gloss)" format,
+// matching Translate/Listening's terser wordBreakdown style) rather than a
+// literal copy of it: Sentence Builder's per-word notes have always
+// carried real grammatical reasoning (verb endings, agreement, why a verb
+// is subjunctive, etc.), not just a bare English gloss — collapsing that
+// down to "word (gloss)" the way Translate/Listening's shared format does
+// would have destroyed the actual pedagogical content Part 6 (SAC-103)
+// was built to deliver. The array shape still satisfies Part 2's real
+// goal (each Spanish term reads as its own bold, scannable line instead
+// of running together in one paragraph) without losing any of the
+// explanatory prose — see SentenceBuilderView.jsx's rendering and
+// CLAUDE.md's Decisions Log for the full reasoning. Every entry's `note`
+// still follows the shared style rule (plain language first, technical
+// term in parentheses after) and every part of the sentence is still
+// covered — both checked mechanically by
+// scripts/verifySentenceBuilderContent.mjs against the new array shape.
 export const CATEGORIES = [
   'pronoun',
   'object-pronoun',
@@ -84,6 +109,7 @@ export const CATEGORIES = [
   'adverb',
   'article',
   'infinitive',
+  'gerund',
 ]
 
 export const SENTENCE_BUILDER_CONTENT = [
@@ -118,8 +144,11 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Café" is coffee — the others are milk, water, and tea.',
       },
     ],
-    grammarExplanation:
-      '"Necesito" means "I need" — the -o ending shows who\'s doing it, "I" (first person singular). "Un" means "a", matching the masculine word that comes after it. "Café" means "coffee".',
+    grammarExplanation: [
+      { spanish: 'Necesito', note: 'means "I need" — the -o ending shows who\'s doing it, "I" (first person singular).' },
+      { spanish: 'Un', note: 'means "a", matching the masculine word that comes after it.' },
+      { spanish: 'Café', note: 'means "coffee".' },
+    ],
   },
   {
     id: 'beg-2',
@@ -144,8 +173,17 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: 'Here "tired" describes one masculine person, so no extra "a" or "s" is added.',
       },
     ],
-    grammarExplanation:
-      '"Estás" means "you are" — the -ás ending is the "you" (tú, second person singular) form of estar, used for how someone feels right now, not a permanent trait. "Muy" means "very". "Cansado" means "tired" — it ends in -o here because it\'s describing one male (or default masculine) person (masculine singular).',
+    grammarExplanation: [
+      {
+        spanish: 'Estás',
+        note: 'means "you are" — the -ás ending is the "you" (tú, second person singular) form of estar, used for how someone feels right now, not a permanent trait.',
+      },
+      { spanish: 'Muy', note: 'means "very".' },
+      {
+        spanish: 'Cansado',
+        note: 'means "tired" — it ends in -o here because it\'s describing one male (or default masculine) person (masculine singular).',
+      },
+    ],
   },
   {
     id: 'beg-3',
@@ -169,8 +207,13 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Arroz" is rice — the others are bread, cheese, and chicken.',
       },
     ],
-    grammarExplanation:
-      '"Comemos" means "we eat" — the -mos ending shows "we" (first person plural) are doing it. "Arroz" means "rice" — no word for "the" is needed here since we\'re talking about rice in general, not a specific batch of it.',
+    grammarExplanation: [
+      { spanish: 'Comemos', note: 'means "we eat" — the -mos ending shows "we" (first person plural) are doing it.' },
+      {
+        spanish: 'Arroz',
+        note: 'means "rice" — no word for "the" is needed here since we\'re talking about rice in general, not a specific batch of it.',
+      },
+    ],
   },
   {
     id: 'beg-4',
@@ -218,8 +261,19 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: 'Descriptive adjectives usually come AFTER the noun in Spanish — "casa grande", not "grande casa".',
       },
     ],
-    grammarExplanation:
-      '"Ella" means "she" (a subject pronoun). "Tiene" means "has" — the -e ending is the "she/he/you formal" form (third person singular) of tener. "Una" means "a", matching the feminine word "casa". "Casa" means "house". "Grande" means "big" — notice it comes AFTER the noun it describes, the normal word order in Spanish (unlike English, which puts "big" before "house").',
+    grammarExplanation: [
+      { spanish: 'Ella', note: 'means "she" (a subject pronoun).' },
+      {
+        spanish: 'Tiene',
+        note: 'means "has" — the -e ending is the "she/he/you formal" form (third person singular) of tener.',
+      },
+      { spanish: 'Una', note: 'means "a", matching the feminine word "casa".' },
+      { spanish: 'Casa', note: 'means "house".' },
+      {
+        spanish: 'Grande',
+        note: 'means "big" — notice it comes AFTER the noun it describes, the normal word order in Spanish (unlike English, which puts "big" before "house").',
+      },
+    ],
   },
   {
     id: 'beg-5',
@@ -259,8 +313,15 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: 'Since "niños" is plural, "feliz" needs its plural form: "felices".',
       },
     ],
-    grammarExplanation:
-      '"Los" means "the", matching the masculine plural word after it. "Niños" means "children". "Están" means "are" — this uses estar (not ser) because it\'s describing how the children currently feel, a state rather than a permanent trait. "Felices" means "happy" — it takes the plural ending -es to match "niños".',
+    grammarExplanation: [
+      { spanish: 'Los', note: 'means "the", matching the masculine plural word after it.' },
+      { spanish: 'Niños', note: 'means "children".' },
+      {
+        spanish: 'Están',
+        note: 'means "are" — this uses estar (not ser) because it\'s describing how the children currently feel, a state rather than a permanent trait.',
+      },
+      { spanish: 'Felices', note: 'means "happy" — it takes the plural ending -es to match "niños".' },
+    ],
   },
   {
     id: 'beg-6',
@@ -308,8 +369,16 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Playa" is beach — the others are mountain, city, and pool.',
       },
     ],
-    grammarExplanation:
-      '"Quiero" means "I want" — querer changes its e to ie for "I", "you", "he/she", and "they" (a stem-changing verb). "Ir" means "to go" (an infinitive, the plain unconjugated form, used here right after "quiero"). "A" means "to", pointing toward the destination. "La" means "the", matching the feminine word "playa". "Playa" means "beach".',
+    grammarExplanation: [
+      {
+        spanish: 'Quiero',
+        note: 'means "I want" — querer changes its e to ie for "I", "you", "he/she", and "they" (a stem-changing verb).',
+      },
+      { spanish: 'Ir', note: 'means "to go" (an infinitive, the plain unconjugated form, used here right after "quiero").' },
+      { spanish: 'A', note: 'means "to", pointing toward the destination.' },
+      { spanish: 'La', note: 'means "the", matching the feminine word "playa".' },
+      { spanish: 'Playa', note: 'means "beach".' },
+    ],
   },
   {
     id: 'beg-7',
@@ -341,8 +410,14 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Esta noche" is tonight — the others are tomorrow, today, and now.',
       },
     ],
-    grammarExplanation:
-      '"Podemos" means "we can" — poder changes o to ue for "I/you/he-she/they", but "we" (nosotros) keeps the plain o. "Salir" means "to go out" (an infinitive right after "podemos"). "Esta noche" means "tonight" — a fixed time phrase, literally "this night".',
+    grammarExplanation: [
+      {
+        spanish: 'Podemos',
+        note: 'means "we can" — poder changes o to ue for "I/you/he-she/they", but "we" (nosotros) keeps the plain o.',
+      },
+      { spanish: 'Salir', note: 'means "to go out" (an infinitive right after "podemos").' },
+      { spanish: 'Esta noche', note: 'means "tonight" — a fixed time phrase, literally "this night".' },
+    ],
   },
   {
     id: 'beg-8',
@@ -366,8 +441,13 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Español" is Spanish — the others are English, French, and German.',
       },
     ],
-    grammarExplanation:
-      '"Hablo" means "I speak" — the -o ending marks it as the "I" (first person singular) form of the regular -ar verb hablar. "Español" means "Spanish" (the language) — no word for "the" is needed here.',
+    grammarExplanation: [
+      {
+        spanish: 'Hablo',
+        note: 'means "I speak" — the -o ending marks it as the "I" (first person singular) form of the regular -ar verb hablar.',
+      },
+      { spanish: 'Español', note: 'means "Spanish" (the language) — no word for "the" is needed here.' },
+    ],
   },
   {
     id: 'beg-9',
@@ -392,8 +472,14 @@ export const SENTENCE_BUILDER_CONTENT = [
       },
       { type: 'fixed', text: 'Bogotá' },
     ],
-    grammarExplanation:
-      '"Vivo" means "I live" — the -o ending marks it as the "I" (first person singular) form of the regular -ir verb vivir. "En" means "in", showing where. "Bogotá" is the name of the city — it doesn\'t change between English and Spanish.',
+    grammarExplanation: [
+      {
+        spanish: 'Vivo',
+        note: 'means "I live" — the -o ending marks it as the "I" (first person singular) form of the regular -ir verb vivir.',
+      },
+      { spanish: 'En', note: 'means "in", showing where.' },
+      { spanish: 'Bogotá', note: 'is the name of the city — it doesn\'t change between English and Spanish.' },
+    ],
   },
   {
     id: 'beg-10',
@@ -417,8 +503,13 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Mucho" is "a lot" — the others are "a little", "well", and "badly".',
       },
     ],
-    grammarExplanation:
-      '"Trabajo" means "I work" — the -o ending marks the "I" (first person singular) form of the regular -ar verb trabajar. "Mucho" means "a lot", describing how much you work (an adverb of degree).',
+    grammarExplanation: [
+      {
+        spanish: 'Trabajo',
+        note: 'means "I work" — the -o ending marks the "I" (first person singular) form of the regular -ar verb trabajar.',
+      },
+      { spanish: 'Mucho', note: 'means "a lot", describing how much you work (an adverb of degree).' },
+    ],
   },
   {
     id: 'beg-11',
@@ -442,8 +533,13 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Todos los días" is "every day" — the others are "every month", "each week", and "always".',
       },
     ],
-    grammarExplanation:
-      '"Estudio" means "I study" — the -o ending marks the "I" (first person singular) form of the regular -ar verb estudiar. "Todos los días" means "every day", a fixed time phrase — literally "all the days".',
+    grammarExplanation: [
+      {
+        spanish: 'Estudio',
+        note: 'means "I study" — the -o ending marks the "I" (first person singular) form of the regular -ar verb estudiar.',
+      },
+      { spanish: 'Todos los días', note: 'means "every day", a fixed time phrase — literally "all the days".' },
+    ],
   },
   {
     id: 'beg-12',
@@ -483,8 +579,18 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Interesante" doesn\'t change for gender — it stays the same for masculine or feminine.',
       },
     ],
-    grammarExplanation:
-      '"Leo" means "I read" — the -o ending marks the "I" (first person singular) form of the regular -er verb leer. "Un" means "a", matching the masculine word "libro". "Libro" means "book". "Interesante" means "interesting" — it comes after the noun, and its -e ending doesn\'t change for masculine or feminine.',
+    grammarExplanation: [
+      {
+        spanish: 'Leo',
+        note: 'means "I read" — the -o ending marks the "I" (first person singular) form of the regular -er verb leer.',
+      },
+      { spanish: 'Un', note: 'means "a", matching the masculine word "libro".' },
+      { spanish: 'Libro', note: 'means "book".' },
+      {
+        spanish: 'Interesante',
+        note: 'means "interesting" — it comes after the noun, and its -e ending doesn\'t change for masculine or feminine.',
+      },
+    ],
   },
   {
     id: 'beg-13',
@@ -516,8 +622,17 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Agua" is a feminine word, so the adjective needs the feminine ending: "fría".',
       },
     ],
-    grammarExplanation:
-      '"Bebemos" means "we drink" — the -mos ending marks the "we" (first person plural) form of the regular -er verb beber. "Agua" means "water" (a feminine word, even though it uses "el" instead of "la" when a direct article is needed — a spelling quirk that doesn\'t apply here since there\'s no article). "Fría" means "cold" — it takes the feminine ending -a to agree with "agua".',
+    grammarExplanation: [
+      {
+        spanish: 'Bebemos',
+        note: 'means "we drink" — the -mos ending marks the "we" (first person plural) form of the regular -er verb beber.',
+      },
+      {
+        spanish: 'Agua',
+        note: 'means "water" (a feminine word, even though it uses "el" instead of "la" when a direct article is needed — a spelling quirk that doesn\'t apply here since there\'s no article).',
+      },
+      { spanish: 'Fría', note: 'means "cold" — it takes the feminine ending -a to agree with "agua".' },
+    ],
   },
   {
     id: 'beg-14',
@@ -541,8 +656,13 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Música" is music — "canción" would specifically mean "a song".',
       },
     ],
-    grammarExplanation:
-      '"Escucho" means "I listen to" — the -o ending marks the "I" (first person singular) form of the regular -ar verb escuchar. Notice Spanish doesn\'t need a separate word for "to" here, unlike English "listen TO". "Música" means "music".',
+    grammarExplanation: [
+      {
+        spanish: 'Escucho',
+        note: 'means "I listen to" — the -o ending marks the "I" (first person singular) form of the regular -ar verb escuchar. Notice Spanish doesn\'t need a separate word for "to" here, unlike English "listen TO".',
+      },
+      { spanish: 'Música', note: 'means "music".' },
+    ],
   },
   {
     id: 'beg-15',
@@ -567,8 +687,17 @@ export const SENTENCE_BUILDER_CONTENT = [
       },
       { type: 'fixed', text: 'Ana' },
     ],
-    grammarExplanation:
-      '"Me" here means the action happens to yourself (a reflexive pronoun) — you\'re not naming someone else, you\'re naming yourself. "Llamo" means "I call" — together, "me llamo" literally means "I call myself", which is how Spanish says "my name is". "Ana" is a name, so it doesn\'t change between languages.',
+    grammarExplanation: [
+      {
+        spanish: 'Me',
+        note: 'here means the action happens to yourself (a reflexive pronoun) — you\'re not naming someone else, you\'re naming yourself.',
+      },
+      {
+        spanish: 'Llamo',
+        note: 'means "I call" — together, "me llamo" literally means "I call myself", which is how Spanish says "my name is".',
+      },
+      { spanish: 'Ana', note: 'is a name, so it doesn\'t change between languages.' },
+    ],
   },
 
   // ================= INTERMEDIATE =================
@@ -603,8 +732,18 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Café" is coffee — the others are tea, chocolate, and juice.',
       },
     ],
-    grammarExplanation:
-      '"Me" here means "to me" — who\'s affected by the thing being pleasing (an indirect object), not the one doing an action. "Gusta" means "is pleasing" — it agrees with "el café" (singular), not with "me". Spanish literally says "coffee is pleasing to me" instead of English\'s "I like coffee". "El" means "the", matching the masculine word "café" — Spanish needs it here even though English doesn\'t. "Café" means "coffee".',
+    grammarExplanation: [
+      {
+        spanish: 'Me',
+        note: 'here means "to me" — who\'s affected by the thing being pleasing (an indirect object), not the one doing an action.',
+      },
+      {
+        spanish: 'Gusta',
+        note: 'means "is pleasing" — it agrees with "el café" (singular), not with "me". Spanish literally says "coffee is pleasing to me" instead of English\'s "I like coffee".',
+      },
+      { spanish: 'El', note: 'means "the", matching the masculine word "café" — Spanish needs it here even though English doesn\'t.' },
+      { spanish: 'Café', note: 'means "coffee".' },
+    ],
   },
   {
     id: 'int-2',
@@ -645,8 +784,16 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Carro" is masculine singular, so the adjective needs to match: "caro", not "cara".',
       },
     ],
-    grammarExplanation:
-      '"El" means "the", matching masculine "carro". "Carro" means "car". "Rojo" means "red" — it comes right after the noun it describes, the normal Spanish word order. "Es" means "is" — this uses ser (not estar) because being expensive is a lasting trait of the car, not a temporary state. "Caro" means "expensive" — it matches masculine singular "carro".',
+    grammarExplanation: [
+      { spanish: 'El', note: 'means "the", matching masculine "carro".' },
+      { spanish: 'Carro', note: 'means "car".' },
+      { spanish: 'Rojo', note: 'means "red" — it comes right after the noun it describes, the normal Spanish word order.' },
+      {
+        spanish: 'Es',
+        note: 'means "is" — this uses ser (not estar) because being expensive is a lasting trait of the car, not a temporary state.',
+      },
+      { spanish: 'Caro', note: 'means "expensive" — it matches masculine singular "carro".' },
+    ],
   },
   {
     id: 'int-3',
@@ -671,8 +818,14 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Dinero" is money — the others are time, work, and hunger.',
       },
     ],
-    grammarExplanation:
-      '"No" means "not/don\'t" — Spanish makes a verb negative just by putting "no" directly in front of it, with no extra helper word like English "do". "Tengo" means "I have" — the -o ending marks the "I" (first person singular) form of tener. "Dinero" means "money".',
+    grammarExplanation: [
+      {
+        spanish: 'No',
+        note: 'means "not/don\'t" — Spanish makes a verb negative just by putting "no" directly in front of it, with no extra helper word like English "do".',
+      },
+      { spanish: 'Tengo', note: 'means "I have" — the -o ending marks the "I" (first person singular) form of tener.' },
+      { spanish: 'Dinero', note: 'means "money".' },
+    ],
   },
   {
     id: 'int-4',
@@ -695,7 +848,14 @@ export const SENTENCE_BUILDER_CONTENT = [
         options: ['Estoy', 'Estás', 'está', 'están'],
         hint: '"Están" + "estudiando" together mean "are studying" — "están" is the "they" form of estar.',
       },
-      { type: 'fixed', text: 'estudiando' },
+      {
+        type: 'slot',
+        category: 'gerund',
+        englishSpan: [2, 2],
+        correctAnswer: 'estudiando',
+        options: ['estudiando', 'estudiar', 'estudia', 'trabajando'],
+        hint: '"Estudiando" means "studying" — the -ando form Spanish uses for an ongoing action (a gerund), paired with "están" — not the plain unconjugated form "estudiar" or a conjugated form like "estudia".',
+      },
       {
         type: 'slot',
         category: 'noun',
@@ -705,8 +865,18 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Español" is Spanish — the others are English, French, and German.',
       },
     ],
-    grammarExplanation:
-      '"Ellos" means "they". "Están" means "are" — combined with "estudiando" (studying), it forms the "are studying" progressive tense, similar to English "-ing". "Estudiando" means "studying" — the form Spanish uses for an ongoing action (a gerund); it doesn\'t change based on who\'s doing it. "Español" means "Spanish" (the language).',
+    grammarExplanation: [
+      { spanish: 'Ellos', note: 'means "they".' },
+      {
+        spanish: 'Están',
+        note: 'means "are" — combined with "estudiando" (studying), it forms the "are studying" progressive tense, similar to English "-ing".',
+      },
+      {
+        spanish: 'Estudiando',
+        note: 'means "studying" — the form Spanish uses for an ongoing action (a gerund); it doesn\'t change based on who\'s doing it.',
+      },
+      { spanish: 'Español', note: 'means "Spanish" (the language).' },
+    ],
   },
   {
     id: 'int-5',
@@ -754,8 +924,16 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Parque" is park — the others are garden, downtown, and building.',
       },
     ],
-    grammarExplanation:
-      '"Te" here means "you" as the person being seen — the one the action happens to directly (a direct object), placed before the verb in Spanish rather than after it like English. "Veo" means "I see" — an irregular "I" form of ver. "En" means "in". "El" means "the", matching masculine "parque". "Parque" means "park".',
+    grammarExplanation: [
+      {
+        spanish: 'Te',
+        note: 'here means "you" as the person being seen — the one the action happens to directly (a direct object), placed before the verb in Spanish rather than after it like English.',
+      },
+      { spanish: 'Veo', note: 'means "I see" — an irregular "I" form of ver.' },
+      { spanish: 'En', note: 'means "in".' },
+      { spanish: 'El', note: 'means "the", matching masculine "parque".' },
+      { spanish: 'Parque', note: 'means "park".' },
+    ],
   },
   {
     id: 'int-6',
@@ -795,8 +973,18 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Mucho" is "a lot" — the others are "a little", "well", and "always".',
       },
     ],
-    grammarExplanation:
-      '"Ella" means "she". "Nos" here means "us" as the people being helped directly (a direct object) — placed before the verb, unlike English which places "us" after "helps". "Ayuda" means "helps" — the -a ending is the "she/he/you formal" form (third person singular) of ayudar. "Mucho" means "a lot".',
+    grammarExplanation: [
+      { spanish: 'Ella', note: 'means "she".' },
+      {
+        spanish: 'Nos',
+        note: 'here means "us" as the people being helped directly (a direct object) — placed before the verb, unlike English which places "us" after "helps".',
+      },
+      {
+        spanish: 'Ayuda',
+        note: 'means "helps" — the -a ending is the "she/he/you formal" form (third person singular) of ayudar.',
+      },
+      { spanish: 'Mucho', note: 'means "a lot".' },
+    ],
   },
   {
     id: 'int-7',
@@ -836,8 +1024,15 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Carta" is letter — don\'t confuse it with "carro" (car).',
       },
     ],
-    grammarExplanation:
-      '"Le" here means "to him" — who received the letter (an indirect object), separate from the letter itself, and it goes before the verb in Spanish. "Escribí" means "I wrote" — the past-tense (preterite) "I" form of escribir. "Una" means "a", matching feminine "carta". "Carta" means "letter".',
+    grammarExplanation: [
+      {
+        spanish: 'Le',
+        note: 'here means "to him" — who received the letter (an indirect object), separate from the letter itself, and it goes before the verb in Spanish.',
+      },
+      { spanish: 'Escribí', note: 'means "I wrote" — the past-tense (preterite) "I" form of escribir.' },
+      { spanish: 'Una', note: 'means "a", matching feminine "carta".' },
+      { spanish: 'Carta', note: 'means "letter".' },
+    ],
   },
   {
     id: 'int-8',
@@ -869,8 +1064,14 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Temprano" is early — the others are late, soon, and now.',
       },
     ],
-    grammarExplanation:
-      '"Nos" here means the action happens to yourselves as a group (a reflexive pronoun) — literally "we get ourselves up". "Levantamos" means "get up" — the -mos ending is the "we" form of levantar(se). "Temprano" means "early".',
+    grammarExplanation: [
+      {
+        spanish: 'Nos',
+        note: 'here means the action happens to yourselves as a group (a reflexive pronoun) — literally "we get ourselves up".',
+      },
+      { spanish: 'Levantamos', note: 'means "get up" — the -mos ending is the "we" form of levantar(se).' },
+      { spanish: 'Temprano', note: 'means "early".' },
+    ],
   },
   {
     id: 'int-9',
@@ -894,8 +1095,13 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Tarde" is late — the others are early, soon, and now.',
       },
     ],
-    grammarExplanation:
-      '"Llegué" means "I arrived" — the past-tense (preterite) "I" form of llegar. It\'s spelled with "gué" instead of just "gé" to keep the hard g sound of llegar (a small, common spelling change in -gar verbs). "Tarde" means "late".',
+    grammarExplanation: [
+      {
+        spanish: 'Llegué',
+        note: 'means "I arrived" — the past-tense (preterite) "I" form of llegar. It\'s spelled with "gué" instead of just "gé" to keep the hard g sound of llegar (a small, common spelling change in -gar verbs).',
+      },
+      { spanish: 'Tarde', note: 'means "late".' },
+    ],
   },
   {
     id: 'int-10',
@@ -928,8 +1134,15 @@ export const SENTENCE_BUILDER_CONTENT = [
       },
       { type: 'fixed', text: 'ellos' },
     ],
-    grammarExplanation:
-      '"Compramos" means "we buy" — the -mos ending is the "we" form of comprar. "Regalos" means "gifts". "Para" means "for", showing who the gifts are intended for — different from "por", which also means "for" but in the sense of "because of" or "by". "Ellos" means "them".',
+    grammarExplanation: [
+      { spanish: 'Compramos', note: 'means "we buy" — the -mos ending is the "we" form of comprar.' },
+      { spanish: 'Regalos', note: 'means "gifts".' },
+      {
+        spanish: 'Para',
+        note: 'means "for", showing who the gifts are intended for — different from "por", which also means "for" but in the sense of "because of" or "by".',
+      },
+      { spanish: 'Ellos', note: 'means "them".' },
+    ],
   },
   {
     id: 'int-11',
@@ -954,8 +1167,14 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Llaves" is keys — the others are glasses, shoes, and documents.',
       },
     ],
-    grammarExplanation:
-      '"Busco" means "I look for" — buscar already includes the idea of "for", so Spanish doesn\'t need an extra word for it. "Mis" means "my" (plural, matching "llaves"). "Llaves" means "keys".',
+    grammarExplanation: [
+      {
+        spanish: 'Busco',
+        note: 'means "I look for" — buscar already includes the idea of "for", so Spanish doesn\'t need an extra word for it.',
+      },
+      { spanish: 'Mis', note: 'means "my" (plural, matching "llaves").' },
+      { spanish: 'Llaves', note: 'means "keys".' },
+    ],
   },
   {
     id: 'int-12',
@@ -987,8 +1206,14 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Solución" is solution — the others are answer, idea, and question.',
       },
     ],
-    grammarExplanation:
-      '"Encuentro" means "I find" — encontrar changes its o to ue for "I/you/he-she/they" (a stem-changing verb), but not for "we". "La" means "the", matching feminine "solución". "Solución" means "solution".',
+    grammarExplanation: [
+      {
+        spanish: 'Encuentro',
+        note: 'means "I find" — encontrar changes its o to ue for "I/you/he-she/they" (a stem-changing verb), but not for "we".',
+      },
+      { spanish: 'La', note: 'means "the", matching feminine "solución".' },
+      { spanish: 'Solución', note: 'means "solution".' },
+    ],
   },
   {
     id: 'int-13',
@@ -1028,8 +1253,18 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Fotos" is photos — the others are videos, drawings, and documents.',
       },
     ],
-    grammarExplanation:
-      '"Le" here means "to him" — who receives the showing (an indirect object), separate from what\'s being shown, and it goes before the verb. "Muestro" means "I show" — mostrar changes its o to ue for "I/you/he-she/they" (a stem-changing verb). "Las" means "the" (feminine plural, matching "fotos"). "Fotos" means "photos".',
+    grammarExplanation: [
+      {
+        spanish: 'Le',
+        note: 'here means "to him" — who receives the showing (an indirect object), separate from what\'s being shown, and it goes before the verb.',
+      },
+      {
+        spanish: 'Muestro',
+        note: 'means "I show" — mostrar changes its o to ue for "I/you/he-she/they" (a stem-changing verb).',
+      },
+      { spanish: 'Las', note: 'means "the" (feminine plural, matching "fotos").' },
+      { spanish: 'Fotos', note: 'means "photos".' },
+    ],
   },
   {
     id: 'int-14',
@@ -1061,8 +1296,14 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Algo" is something — the others are nothing, everything, and that.',
       },
     ],
-    grammarExplanation:
-      '"Les" here means "to them" (plural) — who\'s being asked (an indirect object), placed before the verb. "Pregunto" means "I ask" — the -o ending is the "I" (first person singular) form of preguntar. "Algo" means "something".',
+    grammarExplanation: [
+      {
+        spanish: 'Les',
+        note: 'here means "to them" (plural) — who\'s being asked (an indirect object), placed before the verb.',
+      },
+      { spanish: 'Pregunto', note: 'means "I ask" — the -o ending is the "I" (first person singular) form of preguntar.' },
+      { spanish: 'Algo', note: 'means "something".' },
+    ],
   },
   {
     id: 'int-15',
@@ -1086,8 +1327,13 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Ayuda" is help — the others are advice, forgiveness, and permission.',
       },
     ],
-    grammarExplanation:
-      '"Pido" means "I ask for" — pedir changes its e to i for "I/you/he-she/they" (a stem-changing verb), and already includes the idea of "for", so no extra word is needed. "Ayuda" means "help".',
+    grammarExplanation: [
+      {
+        spanish: 'Pido',
+        note: 'means "I ask for" — pedir changes its e to i for "I/you/he-she/they" (a stem-changing verb), and already includes the idea of "for", so no extra word is needed.',
+      },
+      { spanish: 'Ayuda', note: 'means "help".' },
+    ],
   },
 
   // ================= ADVANCED =================
@@ -1116,8 +1362,16 @@ export const SENTENCE_BUILDER_CONTENT = [
       },
       { type: 'fixed', text: 'tiempo' },
     ],
-    grammarExplanation:
-      '"Espero" means "I hope". "Que" means "that", introducing what\'s hoped for. "Llegues" means "(you) arrive" — because it follows "espero que" (something hoped for, not a stated fact), the verb switches to a special mood for uncertain/hoped-for actions (the subjunctive) — its "you" form. "A" means "on" here, as part of the fixed phrase "a tiempo" ("on time"). "Tiempo" means "time".',
+    grammarExplanation: [
+      { spanish: 'Espero', note: 'means "I hope".' },
+      { spanish: 'Que', note: 'means "that", introducing what\'s hoped for.' },
+      {
+        spanish: 'Llegues',
+        note: 'means "(you) arrive" — because it follows "espero que" (something hoped for, not a stated fact), the verb switches to a special mood for uncertain/hoped-for actions (the subjunctive) — its "you" form.',
+      },
+      { spanish: 'A', note: 'means "on" here, as part of the fixed phrase "a tiempo" ("on time").' },
+      { spanish: 'Tiempo', note: 'means "time".' },
+    ],
   },
   {
     id: 'adv-2',
@@ -1151,8 +1405,19 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Todos los días" is "every day".',
       },
     ],
-    grammarExplanation:
-      '"Es" means "is". "Importante" means "important" — it doesn\'t change for gender, and here it describes the whole idea of studying, not one specific noun. "Que" means "that". "Estudiemos" means "(we) study" — because it follows "es importante que" (a recommendation, not a stated fact), the verb switches to a special form used for recommended or hoped-for actions (the subjunctive mood), here in its "we" form. "Todos los días" means "every day".',
+    grammarExplanation: [
+      { spanish: 'Es', note: 'means "is".' },
+      {
+        spanish: 'Importante',
+        note: 'means "important" — it doesn\'t change for gender, and here it describes the whole idea of studying, not one specific noun.',
+      },
+      { spanish: 'Que', note: 'means "that".' },
+      {
+        spanish: 'Estudiemos',
+        note: 'means "(we) study" — because it follows "es importante que" (a recommendation, not a stated fact), the verb switches to a special form used for recommended or hoped-for actions (the subjunctive mood), here in its "we" form.',
+      },
+      { spanish: 'Todos los días', note: 'means "every day".' },
+    ],
   },
   {
     id: 'adv-3',
@@ -1179,8 +1444,19 @@ export const SENTENCE_BUILDER_CONTENT = [
       },
       { type: 'fixed', text: 'viajaría' },
     ],
-    grammarExplanation:
-      '"Si" means "if". "Tuviera" means "(I) had" — since this "if" describes something not actually true right now (a hypothetical), Spanish uses a special past-tense form for that (the imperfect subjunctive mood), here the "I" form of tener. "Más" means "more". "Tiempo" means "time". "Viajaría" means "I would travel" — the -ía ending marks a special form used for "would" actions (the conditional mood).',
+    grammarExplanation: [
+      { spanish: 'Si', note: 'means "if".' },
+      {
+        spanish: 'Tuviera',
+        note: 'means "(I) had" — since this "if" describes something not actually true right now (a hypothetical), Spanish uses a special past-tense form for that (the imperfect subjunctive mood), here the "I" form of tener.',
+      },
+      { spanish: 'Más', note: 'means "more".' },
+      { spanish: 'Tiempo', note: 'means "time".' },
+      {
+        spanish: 'Viajaría',
+        note: 'means "I would travel" — the -ía ending marks a special form used for "would" actions (the conditional mood).',
+      },
+    ],
   },
   {
     id: 'adv-4',
@@ -1239,8 +1515,20 @@ export const SENTENCE_BUILDER_CONTENT = [
       },
       { type: 'fixed', text: 'mesa' },
     ],
-    grammarExplanation:
-      '"La" means "the", matching feminine "carta". "Carta" means "letter". "Que" means "that/which", introducing more detail about the letter. "Le" means "to him" — who received the letter (an indirect object), placed right before the verb. "Escribí" means "I wrote" — the past-tense (preterite) "I" form of escribir. "Está" means "is" (location, using estar). "En" means "on". "La" means "the", matching feminine "mesa". "Mesa" means "table".',
+    grammarExplanation: [
+      { spanish: 'La', note: 'means "the", matching feminine "carta".' },
+      { spanish: 'Carta', note: 'means "letter".' },
+      { spanish: 'Que', note: 'means "that/which", introducing more detail about the letter.' },
+      {
+        spanish: 'Le',
+        note: 'means "to him" — who received the letter (an indirect object), placed right before the verb.',
+      },
+      { spanish: 'Escribí', note: 'means "I wrote" — the past-tense (preterite) "I" form of escribir.' },
+      { spanish: 'Está', note: 'means "is" (location, using estar).' },
+      { spanish: 'En', note: 'means "on".' },
+      { spanish: 'La', note: 'means "the", matching feminine "mesa".' },
+      { spanish: 'Mesa', note: 'means "table".' },
+    ],
   },
   {
     id: 'adv-5',
@@ -1273,8 +1561,15 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Verduras" is vegetables (plural) — "frutas" would be fruits.',
       },
     ],
-    grammarExplanation:
-      '"Deberías" means "you should" — the -ías ending marks a special form used for "should/would" actions (the conditional mood) in its "you" form. "Comer" means "to eat" (an infinitive, the plain unconjugated form, right after "deberías"). "Más" means "more". "Verduras" means "vegetables".',
+    grammarExplanation: [
+      {
+        spanish: 'Deberías',
+        note: 'means "you should" — the -ías ending marks a special form used for "should/would" actions (the conditional mood) in its "you" form.',
+      },
+      { spanish: 'Comer', note: 'means "to eat" (an infinitive, the plain unconjugated form, right after "deberías").' },
+      { spanish: 'Más', note: 'means "more".' },
+      { spanish: 'Verduras', note: 'means "vegetables".' },
+    ],
   },
   {
     id: 'adv-6',
@@ -1290,7 +1585,14 @@ export const SENTENCE_BUILDER_CONTENT = [
         options: ['Estoy', 'Estás', 'está', 'Estamos'],
         hint: '"Está lloviendo" is the standard way to say "it is raining" — weather verbs use the "it" (third person singular) form.',
       },
-      { type: 'fixed', text: 'lloviendo,' },
+      {
+        type: 'slot',
+        category: 'gerund',
+        englishSpan: [3, 3],
+        correctAnswer: 'lloviendo,',
+        options: ['lloviendo,', 'llover', 'llueve', 'nevando'],
+        hint: '"Lloviendo" means "raining" — the -iendo form Spanish uses for an ongoing action (a gerund), paired with "está" — not the plain unconjugated form "llover" or a conjugated form like "llueve".',
+      },
       { type: 'fixed', text: 'vamos' },
       {
         type: 'slot',
@@ -1309,8 +1611,23 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Salir" means "to go out" — a plain, unconjugated form (an infinitive) used right after "vamos a", a common way to talk about near-future plans.',
       },
     ],
-    grammarExplanation:
-      '"Aunque" means "although". "Está" means "is" — combined with "lloviendo" (raining), it forms "is raining"; weather verbs like this use the "it" (third person singular) form. "Lloviendo" means "raining" — the form Spanish uses for an ongoing action (a gerund), equivalent to English "-ing". "Vamos" means "we are going". "A" here is part of "ir a" plus a plain, unconjugated verb form (an infinitive), a common way to talk about near-future plans — "going to do something". "Salir" means "to go out" (an infinitive, the plain unconjugated form).',
+    grammarExplanation: [
+      { spanish: 'Aunque', note: 'means "although".' },
+      {
+        spanish: 'Está',
+        note: 'means "is" — combined with "lloviendo" (raining), it forms "is raining"; weather verbs like this use the "it" (third person singular) form.',
+      },
+      {
+        spanish: 'Lloviendo',
+        note: 'means "raining" — the form Spanish uses for an ongoing action (a gerund), equivalent to English "-ing".',
+      },
+      { spanish: 'Vamos', note: 'means "we are going".' },
+      {
+        spanish: 'A',
+        note: 'here is part of "ir a" plus a plain, unconjugated verb form (an infinitive), a common way to talk about near-future plans — "going to do something".',
+      },
+      { spanish: 'Salir', note: 'means "to go out" (an infinitive, the plain unconjugated form).' },
+    ],
   },
   {
     id: 'adv-7',
@@ -1336,8 +1653,15 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Dudo que" makes what follows doubted, not a stated fact — this triggers a special verb form for that (the subjunctive mood). "Venga" is that form\'s "he/she/you(formal)" form of venir.',
       },
     ],
-    grammarExplanation:
-      '"Dudo" means "I doubt". "Que" means "that". "Él" means "he". "Venga" means "(he) is coming/will come" — because it follows "dudo que" (something doubted, not a stated fact), the verb switches to a special form used for doubted or uncertain actions (the subjunctive mood), here in its "he/she/you formal" form of venir.',
+    grammarExplanation: [
+      { spanish: 'Dudo', note: 'means "I doubt".' },
+      { spanish: 'Que', note: 'means "that".' },
+      { spanish: 'Él', note: 'means "he".' },
+      {
+        spanish: 'Venga',
+        note: 'means "(he) is coming/will come" — because it follows "dudo que" (something doubted, not a stated fact), the verb switches to a special form used for doubted or uncertain actions (the subjunctive mood), here in its "he/she/you formal" form of venir.',
+      },
+    ],
   },
   {
     id: 'adv-8',
@@ -1363,8 +1687,18 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Siento que" makes what follows an emotional reaction, not a plain fact — this triggers a special verb form for that (the subjunctive mood). "Vayas" is that form\'s "you" form of irse.',
       },
     ],
-    grammarExplanation:
-      '"Siento" means "I feel/I\'m sorry". "Que" means "that". "Te" here means the action happens to yourself (a reflexive pronoun) — irse ("to leave") is a verb built around that kind of self-directed action (a reflexive verb). "Vayas" means "(you) leave/are leaving" — because it follows "siento que" (an emotional reaction, not a stated fact), the verb switches to a special form used for emotional reactions (the subjunctive mood), here in its "you" form of irse.',
+    grammarExplanation: [
+      { spanish: 'Siento', note: 'means "I feel/I\'m sorry".' },
+      { spanish: 'Que', note: 'means "that".' },
+      {
+        spanish: 'Te',
+        note: 'here means the action happens to yourself (a reflexive pronoun) — irse ("to leave") is a verb built around that kind of self-directed action (a reflexive verb).',
+      },
+      {
+        spanish: 'Vayas',
+        note: 'means "(you) leave/are leaving" — because it follows "siento que" (an emotional reaction, not a stated fact), the verb switches to a special form used for emotional reactions (the subjunctive mood), here in its "you" form of irse.',
+      },
+    ],
   },
   {
     id: 'adv-9',
@@ -1391,8 +1725,16 @@ export const SENTENCE_BUILDER_CONTENT = [
       },
       { type: 'fixed', text: 'español' },
     ],
-    grammarExplanation:
-      '"Prefiero" means "I prefer". "Que" means "that". "Hablemos" means "(we) speak" — because it follows "prefiero que" (a preference, not a stated fact), the verb switches to a special form used for preferred or wished-for actions (the subjunctive mood), here in its "we" form of hablar. "En" means "in". "Español" means "Spanish".',
+    grammarExplanation: [
+      { spanish: 'Prefiero', note: 'means "I prefer".' },
+      { spanish: 'Que', note: 'means "that".' },
+      {
+        spanish: 'Hablemos',
+        note: 'means "(we) speak" — because it follows "prefiero que" (a preference, not a stated fact), the verb switches to a special form used for preferred or wished-for actions (the subjunctive mood), here in its "we" form of hablar.',
+      },
+      { spanish: 'En', note: 'means "in".' },
+      { spanish: 'Español', note: 'means "Spanish".' },
+    ],
   },
   {
     id: 'adv-10',
@@ -1424,8 +1766,14 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Esta noche" is tonight.',
       },
     ],
-    grammarExplanation:
-      '"Podríamos" means "we could" — the -íamos ending marks a special form used for "could/would" actions (the conditional mood) in its "we" form of poder. "Salir" means "to go out" (an infinitive, the plain unconjugated form, right after "podríamos"). "Esta noche" means "tonight".',
+    grammarExplanation: [
+      {
+        spanish: 'Podríamos',
+        note: 'means "we could" — the -íamos ending marks a special form used for "could/would" actions (the conditional mood) in its "we" form of poder.',
+      },
+      { spanish: 'Salir', note: 'means "to go out" (an infinitive, the plain unconjugated form, right after "podríamos").' },
+      { spanish: 'Esta noche', note: 'means "tonight".' },
+    ],
   },
   {
     id: 'adv-11',
@@ -1465,8 +1813,15 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Verdad" is truth — the others are reason, story, and idea.',
       },
     ],
-    grammarExplanation:
-      '"Le" here means "to him" — who\'s told the truth (an indirect object), separate from the truth itself, and it goes before the verb. "Digo" means "I tell/say" — an irregular "I" form of decir. "La" means "the", matching feminine "verdad". "Verdad" means "truth".',
+    grammarExplanation: [
+      {
+        spanish: 'Le',
+        note: 'here means "to him" — who\'s told the truth (an indirect object), separate from the truth itself, and it goes before the verb.',
+      },
+      { spanish: 'Digo', note: 'means "I tell/say" — an irregular "I" form of decir.' },
+      { spanish: 'La', note: 'means "the", matching feminine "verdad".' },
+      { spanish: 'Verdad', note: 'means "truth".' },
+    ],
   },
   {
     id: 'adv-12',
@@ -1506,8 +1861,12 @@ export const SENTENCE_BUILDER_CONTENT = [
         hint: '"Mañana" is tomorrow — the others are today, yesterday, and now.',
       },
     ],
-    grammarExplanation:
-      '"Traigo" means "I bring" — an irregular "I" form of traer. "El" means "the", matching masculine "postre" — Spanish needs it here even though English doesn\'t. "Postre" means "dessert". "Mañana" means "tomorrow".',
+    grammarExplanation: [
+      { spanish: 'Traigo', note: 'means "I bring" — an irregular "I" form of traer.' },
+      { spanish: 'El', note: 'means "the", matching masculine "postre" — Spanish needs it here even though English doesn\'t.' },
+      { spanish: 'Postre', note: 'means "dessert".' },
+      { spanish: 'Mañana', note: 'means "tomorrow".' },
+    ],
   },
   {
     id: 'adv-13',
@@ -1532,8 +1891,14 @@ export const SENTENCE_BUILDER_CONTENT = [
       },
       { type: 'fixed', text: 'temprano' },
     ],
-    grammarExplanation:
-      '"Generalmente" means "generally/usually" — placed at the start of the sentence here, unlike English "usually" which more often sits closer to the verb. "Salgo" means "I leave" — an irregular "I" form of salir. "Temprano" means "early".',
+    grammarExplanation: [
+      {
+        spanish: 'Generalmente',
+        note: 'means "generally/usually" — placed at the start of the sentence here, unlike English "usually" which more often sits closer to the verb.',
+      },
+      { spanish: 'Salgo', note: 'means "I leave" — an irregular "I" form of salir.' },
+      { spanish: 'Temprano', note: 'means "early".' },
+    ],
   },
   {
     id: 'adv-14',
@@ -1552,8 +1917,11 @@ export const SENTENCE_BUILDER_CONTENT = [
       { type: 'fixed', text: 'tienes' },
       { type: 'fixed', text: 'razón' },
     ],
-    grammarExplanation:
-      '"Pienso" means "I think" — pensar changes its e to ie for "I/you/he-she/they" (a stem-changing verb). "Que" means "that". "Tienes razón" is a fixed phrase meaning "you\'re right" — literally "you have reason".',
+    grammarExplanation: [
+      { spanish: 'Pienso', note: 'means "I think" — pensar changes its e to ie for "I/you/he-she/they" (a stem-changing verb).' },
+      { spanish: 'Que', note: 'means "that".' },
+      { spanish: 'Tienes razón', note: 'is a fixed phrase meaning "you\'re right" — literally "you have reason".' },
+    ],
   },
   {
     id: 'adv-15',
@@ -1586,8 +1954,15 @@ export const SENTENCE_BUILDER_CONTENT = [
       },
       { type: 'fixed', text: 'hoy' },
     ],
-    grammarExplanation:
-      '"Me" here means the action happens to yourself (a reflexive pronoun) — sentirse ("to feel") is a verb built around that kind of self-directed action (a reflexive verb). "Siento" means "I feel" — sentir(se) changes its e to ie for "I/you/he-she/they" (a stem-changing verb). "Bien" means "well/good". "Hoy" means "today".',
+    grammarExplanation: [
+      {
+        spanish: 'Me',
+        note: 'here means the action happens to yourself (a reflexive pronoun) — sentirse ("to feel") is a verb built around that kind of self-directed action (a reflexive verb).',
+      },
+      { spanish: 'Siento', note: 'means "I feel" — sentir(se) changes its e to ie for "I/you/he-she/they" (a stem-changing verb).' },
+      { spanish: 'Bien', note: 'means "well/good".' },
+      { spanish: 'Hoy', note: 'means "today".' },
+    ],
   },
 ]
 

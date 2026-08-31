@@ -527,13 +527,18 @@ Respond with ONLY a JSON array (no markdown fences, no extra text), one object p
 [
   {
     "sentenceIndex": 0,
-    "inlinePhrase": "Me (myself) muero (I die) de (of) hambre (hunger)",
+    "wordBreakdown": [
+      { "spanish": "Me", "english": "myself" },
+      { "spanish": "muero", "english": "I die" },
+      { "spanish": "de", "english": "of" },
+      { "spanish": "hambre", "english": "hunger" }
+    ],
     "englishSyntax": "I'm starving",
     "pattern": "Spanish uses a reflexive verb plus 'de' (of) — a construction with no direct English equivalent, unlike the plain English idiom."
   }
 ]
 
-"sentenceIndex" must be the 0-indexed position matching the numbered list above (the first sentence is 0). Include every sentence, even simple ones where the difference is small — pick whatever's most notable about that sentence's construction. "inlinePhrase" is a short excerpt (not necessarily the whole sentence, but pick whatever best shows the difference) with the literal English meaning of each Spanish word or natural word-group written in parentheses directly after it, like the example above. Group 2-3 words into one parenthetical only when they form a single natural English concept (e.g. a reflexive pronoun + verb, or a contraction like "al"/"del") — otherwise use one parenthetical per word. Don't force a strict one-for-one word count; prioritize what reads naturally.
+"sentenceIndex" must be the 0-indexed position matching the numbered list above (the first sentence is 0). Include every sentence, even simple ones where the difference is small — pick whatever's most notable about that sentence's construction. "wordBreakdown" is an array covering a short excerpt (not necessarily the whole sentence, but pick whatever best shows the difference) — one entry per Spanish word or natural word-group, each with its own literal English meaning. Group 2-3 words into one entry only when they form a single natural English concept (e.g. a reflexive pronoun + verb, or a contraction like "al"/"del") — otherwise use one entry per word. Don't force a strict one-for-one word count; prioritize what reads naturally. This is returned as a structured array (not one inline string with parentheses) specifically so the frontend can render each entry as its own line without needing to parse free text.
 
 STYLE RULE for "pattern" (and any other explanatory text): always explain in plain language FIRST, then put the technical grammatical term in parentheses AFTER — never the reverse, and never a bare technical term with no plain-language explanation at all. For example, write "te here means the action happens to yourself (reflexive pronoun)", not "reflexive pronoun: te means...". Write "the verb's ending changes depending on who's doing it — this is the 'I' form (first person singular)", not just "first person singular conjugation". Never use bare grammar jargon (subject, object, first/second/third person, reflexive, subjunctive, etc.) without an immediately preceding plain-language explanation of what's actually happening in that sentence.`,
       },
@@ -1173,7 +1178,7 @@ async function warmupCache() {
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.2z', cacheReady, cacheWarmup: cacheWarmupStatus });
+  res.json({ status: 'ok', version: '1.3a', cacheReady, cacheWarmup: cacheWarmupStatus });
 });
 
 app.listen(PORT, () => {
